@@ -101,10 +101,11 @@ def ensure_blockchain_stack():
                 return False
 
         if not os.path.exists(SERVICES_MARKER):
-            _set_status("starting_services", "[3/4] 만기환급·오라클·자동납부 서비스를 시작하는 중입니다...")
+            _set_status("starting_services", "[3/4] 만기환급·오라클·자동납부·슬랙알림 서비스를 시작하는 중입니다...")
             _start_console("4-Maturity Watcher", "node scripts/maturity-watcher.js", BLOCKCHAIN_DIR)
             _start_console("5-Oracle Service", "node scripts/oracle-service.js", BLOCKCHAIN_DIR)
             _start_console("6-Premium Scheduler", "node scripts/premium-scheduler.js", BLOCKCHAIN_DIR)
+            _start_console("7-Slack Notifier", "node scripts/slack-notifier.js", BLOCKCHAIN_DIR)
             with open(SERVICES_MARKER, "w") as f:
                 f.write(str(time.time()))
 

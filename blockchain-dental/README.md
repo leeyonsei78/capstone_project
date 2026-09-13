@@ -98,6 +98,18 @@ npm run deploy:local
 | `rejectClaim(claimId, reason)` | 청구 거절 | 관리자 |
 | `payClaim(claimId)` | 보험금 지급 | 관리자 |
 
+## 🔔 슬랙 알림 서비스 (선택)
+
+`scripts/slack-notifier.js`는 모든 메뉴(청약/보험증권/보험료/청구/대출/만기환급/
+자동납부/준비금/파우셋)에서 발생하는 온체인 행위를 감지해 Slack으로 전송한다.
+프론트엔드 UI, 오라클/워처/스케줄러 서비스 어느 쪽에서 트랜잭션을 일으켰든
+컨트랙트 이벤트 기반으로 동작하므로 빠짐없이 포착된다.
+
+```bash
+# .env에 SLACK_WEBHOOK_URL 설정 후 실행 (없으면 콘솔에만 로그 출력)
+node scripts/slack-notifier.js
+```
+
 ## 🌐 Sepolia 테스트넷 배포 (선택)
 
 1. `.env.example` → `.env` 복사 후 키 입력
