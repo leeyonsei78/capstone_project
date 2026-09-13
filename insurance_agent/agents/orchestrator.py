@@ -377,13 +377,13 @@ TOOLS = [
             },
         },
     },
-    # ── 대회 시나리오 1~5: 보험 정밀 언더라이팅 & 요율 합리화 ──────────
+    # ── 시나리오 1~5: 보험 정밀 언더라이팅 & 요율 합리화 ──────────
     {
         "type": "function",
         "function": {
             "name": "assess_cancer_survivor",
             "description": (
-                "[대회 시나리오 1] 암 완치자 보험 인수 심사. "
+                "[시나리오 1] 암 완치자 보험 인수 심사. "
                 "국립암센터 RGST(암등록) + 사망DB 재발률 데이터로 정밀 언더라이팅 후 "
                 "조건부 승인/표준 체 전환 여부와 최적 보험료 할인율을 산출합니다."
             ),
@@ -407,7 +407,7 @@ TOOLS = [
         "function": {
             "name": "assess_low_risk_discount",
             "description": (
-                "[대회 시나리오 2] AI 저위험군 할인. "
+                "[시나리오 2] AI 저위험군 할인. "
                 "G1E 연속 건강검진 + cdw_psmn_vtls(바이탈) + DICOM 영상 소견으로 "
                 "저위험군을 정밀 분류하여 보험료 할인율(최대 30%)을 산출합니다."
             ),
@@ -432,7 +432,7 @@ TOOLS = [
         "function": {
             "name": "assess_pacs_no_extra",
             "description": (
-                "[대회 시나리오 3] 미세 영상 소견자 노-할증. "
+                "[시나리오 3] 미세 영상 소견자 노-할증. "
                 "광주TP DICOM/JPG AI 판독 결과로 임상적 무의미 소견을 구분하여 "
                 "부당 보험료 할증 없이 표준 체로 인수 가능한지 판단합니다."
             ),
@@ -454,7 +454,7 @@ TOOLS = [
         "function": {
             "name": "assess_dynamic_discount",
             "description": (
-                "[대회 시나리오 4] 동적 보험료 캐시백. "
+                "[시나리오 4] 동적 보험료 캐시백. "
                 "cdw_lflg(라이프로그) 기반 건강 개선 점수 향상도에 따라 "
                 "연간 보험료 캐시백(최대 15%) 지급액을 산출합니다."
             ),
@@ -476,7 +476,7 @@ TOOLS = [
         "function": {
             "name": "assess_chronic_disease_rate",
             "description": (
-                "[대회 시나리오 5] 맞춤형 유병자 요율. "
+                "[시나리오 5] 맞춤형 유병자 요율. "
                 "T200~T530 상병 + G1E 검진치료 반응 + BFC 분위로 "
                 "만성질환자별 정밀 보험료를 산출합니다 (기존 일률 할증 대비 최대 30% 인하)."
             ),
@@ -493,13 +493,13 @@ TOOLS = [
             },
         },
     },
-    # ── 대회 시나리오 6~8: 금융 포용성 확대 ──────────────────────────
+    # ── 시나리오 6~8: 금융 포용성 확대 ──────────────────────────
     {
         "type": "function",
         "function": {
             "name": "assess_health_credit",
             "description": (
-                "[대회 시나리오 6] 씬파일러 Health-Credit 대안 신용평가. "
+                "[시나리오 6] 씬파일러 Health-Credit 대안 신용평가. "
                 "G1E(건강검진 성실도) + cdw_psmn_vtls(바이탈 안정도) + BFC(소득분위)를 "
                 "신용점수 가산점으로 환산하여 금리 인하·보험료 할인 혜택을 산출합니다."
             ),
@@ -524,7 +524,7 @@ TOOLS = [
         "function": {
             "name": "assess_sme_health_loan",
             "description": (
-                "[대회 시나리오 7] 소상공인 건강 지속가능성 연계 대출 우대. "
+                "[시나리오 7] 소상공인 건강 지속가능성 연계 대출 우대. "
                 "CDW 임상 수치 + RGST 장기 질환 추적으로 사업 영속성 예측 → "
                 "대출 한도 최대 3,000만원 증액 및 금리 우대."
             ),
@@ -548,7 +548,7 @@ TOOLS = [
         "function": {
             "name": "assess_rental_approval",
             "description": (
-                "[대회 시나리오 8] 유병자·고령층 렌탈/할부 금융 승인. "
+                "[시나리오 8] 유병자·고령층 렌탈/할부 금융 승인. "
                 "광주TP cdw_ptn_hli(환자건강정보) + DEATH/RGST로 단기 급격 악화 위험을 "
                 "정밀 분석하여 병력·고령 차별 없는 공정한 금융 접근 제공."
             ),
@@ -566,13 +566,13 @@ TOOLS = [
             },
         },
     },
-    # ── 대회 시나리오 11·13: 건강체 & 용종 보험 언더라이팅 ──────────────
+    # ── 시나리오 11·13: 건강체 & 용종 보험 언더라이팅 ──────────────
     {
         "type": "function",
         "function": {
             "name": "assess_healthy_body_discount",
             "description": (
-                "[대회 시나리오 11] 건강체 특별약관 보험료 최대 할인. "
+                "[시나리오 11] 건강체 특별약관 보험료 최대 할인. "
                 "G1E 연속 건강검진 + cdw_psmn_vtls(바이탈) + 생활습관 데이터로 "
                 "건강체 등급(1~4급)을 판정하여 최대 30% 보험료 할인 혜택을 산출합니다."
             ),
@@ -597,7 +597,7 @@ TOOLS = [
         "function": {
             "name": "assess_polyp_removal_eligibility",
             "description": (
-                "[대회 시나리오 13] 위 내시경 용종 절제술 후 보험 가입 가능 여부. "
+                "[시나리오 13] 위 내시경 용종 절제술 후 보험 가입 가능 여부. "
                 "현행 기준(수술 이력 → 5년 거절)을 이노베이션 존 병리 DB + T400(상병) + "
                 "DICOM(추적 내시경)으로 정밀 재분류하여 즉시 가입 가능 여부를 판정합니다."
             ),
@@ -620,13 +620,13 @@ TOOLS = [
             },
         },
     },
-    # ── 대회 시나리오 12·14: 건강 데이터 기반 대출 ────────────────────
+    # ── 시나리오 12·14: 건강 데이터 기반 대출 ────────────────────
     {
         "type": "function",
         "function": {
             "name": "assess_healthy_body_loan",
             "description": (
-                "[대회 시나리오 12] 건강체 건강담보대출 승인. "
+                "[시나리오 12] 건강체 건강담보대출 승인. "
                 "DSR 초과로 일반 은행 거절 시 G1E + 바이탈 안정도로 "
                 "건강 자산 점수(HAS)를 산출하여 보험사 연계 건강담보대출 승인 및 금리 우대."
             ),
@@ -651,7 +651,7 @@ TOOLS = [
         "function": {
             "name": "assess_health_secured_loan",
             "description": (
-                "[대회 시나리오 14] 건강 정보 기반 신(新) 건강담보대출 상품. "
+                "[시나리오 14] 건강 정보 기반 신(新) 건강담보대출 상품. "
                 "DSR·LTV 동시 초과로 전 금융기관 대출 불가 시 "
                 "G1E + 바이탈 + 라이프로그 3종 결합(HAS) → 최대 5,000만원 / 연 3.2% 신상품."
             ),
@@ -673,13 +673,13 @@ TOOLS = [
             },
         },
     },
-    # ── 대회 시나리오 15~16: 신용 역선택 방지 ──────────────────────────
+    # ── 시나리오 15~16: 신용 역선택 방지 ──────────────────────────
     {
         "type": "function",
         "function": {
             "name": "assess_adverse_selection_score",
             "description": (
-                "[대회 시나리오 15] 신용+건강 교차 역선택 탐지 언더라이팅. "
+                "[시나리오 15] 신용+건강 교차 역선택 탐지 언더라이팅. "
                 "신용점수 급락 + 건강검진 기피 + 고액 보험 동시 신청 패턴으로 "
                 "AASI(역선택방지지수)를 산출하여 역선택 위험 등급과 필요 조치를 제시합니다."
             ),
@@ -704,7 +704,7 @@ TOOLS = [
         "function": {
             "name": "assess_thin_filer_adverse_selection",
             "description": (
-                "[대회 시나리오 16] 씬파일러 역선택 방지 및 건강 데이터 기반 공정 심사. "
+                "[시나리오 16] 씬파일러 역선택 방지 및 건강 데이터 기반 공정 심사. "
                 "금융 이력 없는 씬파일러의 건강검진 기피 + 고액 보험 첫 신청 패턴을 탐지하고 "
                 "역선택 방지와 함께 포용금융 경로(간편심사형→표준형 전환)를 제시합니다."
             ),
@@ -723,13 +723,13 @@ TOOLS = [
             },
         },
     },
-    # ── 대회 시나리오 9~10: 위험 관리 ────────────────────────────────
+    # ── 시나리오 9~10: 위험 관리 ────────────────────────────────
     {
         "type": "function",
         "function": {
             "name": "assess_early_care",
             "description": (
-                "[대회 시나리오 9] 미시 징후 사전 케어 암 중증화 차단. "
+                "[시나리오 9] 미시 징후 사전 케어 암 중증화 차단. "
                 "광주TP DICOM/JPG + T400(상병) DB로 전조 징후 조기 감지 → "
                 "선제 시술 유도로 고액 보험금 지급을 차단하고 소비자 생명을 지킵니다."
             ),
@@ -752,7 +752,7 @@ TOOLS = [
         "function": {
             "name": "assess_default_prevention",
             "description": (
-                "[대회 시나리오 10] 중증 질환 전환 예측 대출 부실률 차단. "
+                "[시나리오 10] 중증 질환 전환 예측 대출 부실률 차단. "
                 "광주TP CDW SOFA/APACHE2 점수 + RGST 연계로 장기 상환 불능 위험을 "
                 "사전 예측하여 채권 부실률을 차단합니다."
             ),
@@ -880,7 +880,7 @@ def execute_tool(tool_name: str, tool_input: dict, client: openai.OpenAI) -> str
     elif tool_name == "get_personalized_recommendation":
         return _run_recommendation_subagent(tool_input, client)
 
-    # ── 대회 시나리오 1~5: 보험 정밀 언더라이팅 ──────────────────────
+    # ── 시나리오 1~5: 보험 정밀 언더라이팅 ──────────────────────
     elif tool_name == "assess_cancer_survivor":
         return assess_cancer_survivor(**tool_input)
 
@@ -896,7 +896,7 @@ def execute_tool(tool_name: str, tool_input: dict, client: openai.OpenAI) -> str
     elif tool_name == "assess_chronic_disease_rate":
         return assess_chronic_disease_rate(**tool_input)
 
-    # ── 대회 시나리오 6~8: 금융 포용성 확대 ──────────────────────────
+    # ── 시나리오 6~8: 금융 포용성 확대 ──────────────────────────
     elif tool_name == "assess_health_credit":
         return assess_health_credit(**tool_input)
 
@@ -906,21 +906,21 @@ def execute_tool(tool_name: str, tool_input: dict, client: openai.OpenAI) -> str
     elif tool_name == "assess_rental_approval":
         return assess_rental_approval(**tool_input)
 
-    # ── 대회 시나리오 11·13: 건강체 & 용종 보험 언더라이팅 ──────────────
+    # ── 시나리오 11·13: 건강체 & 용종 보험 언더라이팅 ──────────────
     elif tool_name == "assess_healthy_body_discount":
         return assess_healthy_body_discount(**tool_input)
 
     elif tool_name == "assess_polyp_removal_eligibility":
         return assess_polyp_removal_eligibility(**tool_input)
 
-    # ── 대회 시나리오 12·14: 건강 데이터 기반 대출 ────────────────────
+    # ── 시나리오 12·14: 건강 데이터 기반 대출 ────────────────────
     elif tool_name == "assess_healthy_body_loan":
         return assess_healthy_body_loan(**tool_input)
 
     elif tool_name == "assess_health_secured_loan":
         return assess_health_secured_loan(**tool_input)
 
-    # ── 대회 시나리오 9~10: 위험 관리 ────────────────────────────────
+    # ── 시나리오 9~10: 위험 관리 ────────────────────────────────
     elif tool_name == "assess_early_care":
         return assess_early_care(**tool_input)
 
