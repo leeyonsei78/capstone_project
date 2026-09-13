@@ -4,7 +4,7 @@
 
 ```
 test_capstone_project/
-├── run.bat                     # 전체 실행 진입점 (insurance_agent\run.bat 호출)
+├── start.bat                    # 전체 실행 진입점 (insurance_agent\run.bat 호출, AI 어시스턴트 창이 먼저 뜸)
 ├── insurance_agent/            # 보험상담 AI 어시스턴트 (Flask, http://localhost:5000)
 │   ├── web_app.py               # 챗봇 UI + API (블록체인 연동 라우트 포함)
 │   └── blockchain_bridge.py     # 블록체인 스택 자동 기동 브릿지 (신규 추가)
@@ -15,7 +15,7 @@ test_capstone_project/
 
 ## 연동 흐름
 
-1. `run.bat` 실행 → 보험상담 AI 어시스턴트(`insurance_agent`)가 `http://localhost:5000`에서 기동됩니다.
+1. `start.bat` 실행 → 보험상담 AI 어시스턴트(`insurance_agent`) 콘솔 창이 먼저 뜨고 `http://localhost:5000`이 자동으로 열립니다.
 2. 챗봇에서 "블록체인 덴탈보험"(라이나생명 블록체인치아보험, `dental_005`)을 추천받으면,
    상품 비교표의 **⛓️ 블록체인 가입 시작 →** 버튼이 표시됩니다.
 3. 버튼 클릭 시 `web_app.py`의 `/api/blockchain/dental/enroll` API가 `blockchain_bridge.py`를 통해
@@ -34,3 +34,39 @@ test_capstone_project/
   두 브라우저에 MetaMask가 설치되어 있어야 실제 가입까지 진행할 수 있습니다.
 - `insurance_agent/.env`에 `OPENAI_API_KEY`가 설정되어 있어야 AI 상담 기능이 정상 동작합니다.
 - `blockchain-dental`는 로컬 테스트 전용 설정이라 별도 `.env` 없이도 기본값으로 동작합니다.
+
+## 새 PC에서 시작하기 (git clone 이후)
+
+`.gitignore`로 비밀키(`insurance_agent/.env`)와 재생성 가능한 빌드 산출물
+(`node_modules/`, `artifacts/`, `cache/`, `chroma_db/`, `*.xls`)은 저장소에서 제외했습니다.
+`git clone` 직후 아래 1회성 준비 과정을 거치면 이 PC에서 한 것과 동일하게 동작합니다.
+(Windows 전용 — `.bat`/`start` 명령을 사용하므로 macOS·Linux에서는 스크립트 수정이 필요합니다.)
+
+```bat
+git clone https://github.com/leeyonsei78/capstone_project.git
+cd capstone_project
+
+:: 1) AI 어시스턴트 — Python 의존성 + API 키
+cd insurance_agent
+copy .env.example .env
+:: .env 파일을 열어 OPENAI_API_KEY=sk-... 입력 (필수)
+:: (선택) FSS_API_KEY, HOSPITAL_PROVIDER 등도 필요 시 입력
+pip install -r requirements.txt
+cd ..
+
+:: 2) 블록체인 dApp — Node 의존성 설치 (최초 1회, 인터넷 필요)
+cd blockchain-dental
+npm install
+cd ..
+
+:: 3) 실행
+start.bat
+```
+
+- `OPENAI_API_KEY`를 넣지 않으면 AI 상담은 자동으로 Mock 모드(로컬 규칙 기반 응답)로 동작합니다 —
+  실행은 되지만 GPT-4o 기반 자유 대화는 되지 않습니다.
+- `npm install`은 최초 1회만 필요합니다. Hardhat 컨트랙트 컴파일(`artifacts/`, `cache/`)은
+  `블록체인 가입 시작 →` 버튼을 처음 누를 때 자동으로 수행됩니다.
+- Chrome/Edge에 MetaMask 확장을 설치해 두면 실제 가입(트랜잭션 서명)까지 테스트할 수 있습니다.
+  설치하지 않아도 노드 기동·배포·서비스 3종·프론트엔드 자동 실행 자체는 동일하게 동작합니다.
+- 사전 요구사항: Node.js 18+ / npm, Python 3.11+, Windows + Chrome + Edge.
