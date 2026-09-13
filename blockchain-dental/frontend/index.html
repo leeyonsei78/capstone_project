@@ -1,0 +1,1576 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🦷 덴탈보험 블록체인 시스템</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════
+     HEADER
+════════════════════════════════════════════════ -->
+<header class="header">
+  <div class="header-logo">
+    <span class="icon">🦷</span>
+    <h1>덴탈보험 블록체인</h1>
+    <span class="version" id="currencyVersionBadge">💵 USDC</span>
+  </div>
+  <!-- 통화 선택 -->
+  <div class="currency-toggle">
+    <button id="btnCurrUSDC" class="currency-btn active" onclick="switchCurrency('USDC')">💵 USDC</button>
+    <button id="btnCurrKRW"  class="currency-btn"        onclick="switchCurrency('KRW')">🇰🇷 원화 KRW</button>
+  </div>
+  <div class="header-right">
+    <span id="networkBadge" class="network-badge disconnected">미연결</span>
+    <span id="walletAddr" class="wallet-info">-</span>
+    <button id="connectBtn" class="btn btn-connect" onclick="connectWallet()">
+      🦊 MetaMask 연결
+    </button>
+    <span id="adminBadge" class="badge badge-approved hidden" style="margin-left:4px">⚙️ 관리자</span>
+  </div>
+</header>
+
+<!-- ══════════════════════════════════════════════
+     SETUP PANEL
+════════════════════════════════════════════════ -->
+<div class="setup-panel">
+  <div class="setup-inner">
+    <div class="setup-field">
+      <label id="tokenAddrLabel">📄 MockUSDC 컨트랙트 주소</label>
+      <input type="text" id="usdcAddr" class="form-control font-mono"
+             placeholder="0x... (배포 후 config.json에서 자동 로드됨)">
+    </div>
+    <div class="setup-field">
+      <label id="insAddrLabel">🏥 DentalInsurance 컨트랙트 주소</label>
+      <input type="text" id="insAddr" class="form-control font-mono"
+             placeholder="0x... (배포 후 config.json에서 자동 로드됨)">
+    </div>
+    <button class="btn btn-primary" onclick="loadContractsFromInputs()" style="flex-shrink:0">
+      🔗 컨트랙트 연결
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     CONNECTION STATUS PANEL
+════════════════════════════════════════════════ -->
+<div id="statusPanel" class="hidden" style="
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 24px;
+">
+  <div style="max-width:1200px; margin:0 auto; display:flex; gap:24px; align-items:center; flex-wrap:wrap; font-size:13px;">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="color:var(--text-muted)">내 주소:</span>
+      <code id="statusMyAddr" style="font-size:11px;color:var(--accent-blue);cursor:pointer"
+            onclick="navigator.clipboard.writeText(this.textContent).then(()=>showToast('복사됨'))">-</code>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="color:var(--text-muted)">컨트랙트 오너:</span>
+      <code id="statusOwner" style="font-size:11px;color:var(--text-secondary)">-</code>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="color:var(--text-muted)">내 역할:</span>
+      <strong id="statusRole" style="font-size:13px">-</strong>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="color:var(--text-muted)">컨트랙트:</span>
+      <span id="statusContract" style="color:var(--text-muted)">-</span>
+    </div>
+    <div id="statusPolicyName" style="display:none;align-items:center;gap:8px">
+      <span style="color:var(--text-muted)">피보험자명:</span>
+      <strong id="statusPolicyNameVal" style="color:var(--accent-cyan);font-size:13px">-</strong>
+    </div>
+    <div style="margin-left:auto;font-size:11px;color:var(--text-muted)">
+      ⚠️ 관리자 전환: MetaMask에서 Account #0 선택 후 새로고침
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     STATS BAR
+════════════════════════════════════════════════ -->
+<div class="stats-bar">
+  <div class="stats-inner">
+    <!-- 청약 심사 현황 -->
+    <div class="stat-card orange clickable" onclick="showTab('underwriting')">
+      <div class="stat-label">📝 청약 대기중</div>
+      <div class="stat-value" id="statAppPending">-</div>
+      <div class="stat-sub">심사 예정</div>
+    </div>
+    <div class="stat-card green clickable" onclick="showTab('underwriting')">
+      <div class="stat-label">✅ 청약 승인</div>
+      <div class="stat-value" id="statAppApproved">-</div>
+      <div class="stat-sub">증권 생성됨</div>
+    </div>
+    <div class="stat-card red clickable" onclick="showTab('underwriting')">
+      <div class="stat-label">❌ 청약 거절</div>
+      <div class="stat-value" id="statAppRejected">-</div>
+      <div class="stat-sub">심사 불통과</div>
+    </div>
+    <!-- 보험증권 현황 -->
+    <div class="stat-card cyan clickable" onclick="showTab('policy')">
+      <div class="stat-label">📋 활성 보험증권</div>
+      <div class="stat-value" id="statPolicies">-</div>
+      <div class="stat-sub" id="statPoliciesTotal">전체 -건</div>
+    </div>
+    <!-- 약관대출 현황 -->
+    <div class="stat-card purple clickable" onclick="showTab('loan')">
+      <div class="stat-label">💵 활성 대출 건수</div>
+      <div class="stat-value" id="statLoanCount">-</div>
+      <div class="stat-sub" id="statLoanAmount">총 -</div>
+    </div>
+    <!-- 청구 현황 -->
+    <div class="stat-card red clickable" onclick="showTab('claim')">
+      <div class="stat-label">🦷 청구 건수</div>
+      <div class="stat-value" id="statClaimsNum">-</div>
+      <div class="stat-sub" id="statClaimsPending">대기 -건</div>
+    </div>
+    <!-- 만기환급 현황 -->
+    <div class="stat-card teal clickable" onclick="showTab('maturity')">
+      <div class="stat-label">💎 만기환급 건수</div>
+      <div class="stat-value" id="statMaturityCount">-</div>
+      <div class="stat-sub" id="statMaturityAmount">총 -</div>
+    </div>
+    <!-- 기본 보험 현황 (금액) -->
+    <div class="stat-card blue clickable" onclick="showTab('premium')">
+      <div class="stat-label" id="labelStatPremiums">💳 총 보험료 수납</div>
+      <div class="stat-value" id="statPremiums">-</div>
+    </div>
+    <div class="stat-card green clickable" onclick="showTab('claim')">
+      <div class="stat-label" id="labelStatClaims">💰 총 보험금 지급</div>
+      <div class="stat-value" id="statClaims">-</div>
+    </div>
+    <!-- 내 잔액 (관리자는 거래 주체가 아니므로 숨김) -->
+    <div class="stat-card blue clickable" id="cardMyBalance" onclick="showTab('faucet')">
+      <div class="stat-label">👛 내 잔액</div>
+      <div class="stat-value" id="statMyBalance">-</div>
+    </div>
+    <!-- 준비금 잔액 (고객: 본인 준비금 / 관리자: 전체 고객 합계) -->
+    <div class="stat-card teal clickable" onclick="showTab('reserve')">
+      <div class="stat-label" id="labelStatReserve">🏛️ 내 준비금 잔액</div>
+      <div class="stat-value" id="statReserveBalance">-</div>
+    </div>
+    <div class="stat-card yellow clickable" onclick="showTab('state')">
+      <div class="stat-label">🏦 보험사 잔액</div>
+      <div class="stat-value" id="statBalance">-</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     MAIN CONTENT
+════════════════════════════════════════════════ -->
+<div class="main-layout">
+
+  <!-- 탭 네비게이션 -->
+  <nav class="tab-nav">
+    <button id="tabBtnFaucet" class="tab-btn active" data-tab="faucet"  onclick="showTab('faucet')">💰 파우셋</button>
+    <button class="tab-btn" data-tab="underwriting" onclick="showTab('underwriting')">📝 계약 심사</button>
+    <button class="tab-btn" data-tab="policy"  onclick="showTab('policy')">📋 보험증권 관리</button>
+    <button class="tab-btn" data-tab="premium" onclick="showTab('premium')">💳 보험료 납입</button>
+    <button class="tab-btn" data-tab="autopay"      onclick="showTab('autopay')">🔄 자동납부<span id="autopayAlertBadge" style="color:var(--accent-red);font-size:11px"></span></button>
+    <button class="tab-btn" data-tab="loan"         onclick="showTab('loan')">💵 약관대출</button>
+    <button class="tab-btn" data-tab="claim"   onclick="showTab('claim')">🦷 보험금 청구</button>
+    <button class="tab-btn" data-tab="maturity"     onclick="showTab('maturity')">💎 만기환급<span id="maturityAlertBadge" style="color:var(--accent-red);font-size:11px"></span></button>
+    <button class="tab-btn" data-tab="reserve"      onclick="showTab('reserve')">🏛️ 준비금 계좌</button>
+    <button id="tabBtnAdmin" class="tab-btn hidden" data-tab="admin"    onclick="showTab('admin')">⚙️ 관리자 패널</button>
+    <button class="tab-btn" data-tab="state"        onclick="showTab('state')">📊 블록체인 상태</button>
+    <button class="tab-btn" data-tab="log"          onclick="showTab('log')">📜 거래 로그</button>
+  </nav>
+
+  <!-- ────────────────────────────────────────────
+       TAB: USDC 파우셋
+  ──────────────────────────────────────────────── -->
+  <div class="tab-content active" id="tab-faucet">
+    <div class="two-col">
+      <div>
+        <div class="card">
+          <div class="card-title" id="faucetCardTitle">💰 테스트 USDC 수령 (파우셋)</div>
+          <div class="alert alert-info">
+            <span>ℹ️</span>
+            <div id="faucetDesc">이것은 테스트용 가상 USDC입니다. 최대 1회 10,000 USDC 수령 가능하며, 보험료 납입 및 테스트에 사용됩니다.</div>
+          </div>
+          <div class="form-group">
+            <label id="faucetLabel">수령 금액 (USDC)</label>
+            <input type="number" id="faucetAmount" class="form-control"
+                   placeholder="1000" min="1" value="1000">
+          </div>
+          <div id="faucetQuickBtns" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+            <button class="btn btn-ghost" onclick="el('faucetAmount').value='100'">100 USDC</button>
+            <button class="btn btn-ghost" onclick="el('faucetAmount').value='500'">500 USDC</button>
+            <button class="btn btn-ghost" onclick="el('faucetAmount').value='1000'">1,000 USDC</button>
+            <button class="btn btn-ghost" onclick="el('faucetAmount').value='5000'">5,000 USDC</button>
+            <button class="btn btn-ghost" onclick="el('faucetAmount').value='10000'">10,000 USDC</button>
+          </div>
+          <button id="faucetBtn" class="btn btn-success btn-block btn-lg" onclick="useFaucet()">
+            💰 <span id="faucetBtnText">USDC 수령하기</span>
+          </button>
+          <button id="faucetReserveBtn" class="btn btn-primary btn-block" style="margin-top:8px" onclick="depositFaucetAmountToReserve()">
+            🏛️ <span id="faucetReserveBtnText">준비금 계좌에 예치</span>
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="card-title">👛 내 잔액 (<span id="balanceCurrencyLabel">USDC</span>)</div>
+          <div style="text-align:center;padding:20px 0">
+            <div style="font-size:42px;font-weight:700;color:var(--accent-green)" id="myUsdcBal">-</div>
+            <div style="color:var(--text-muted);margin-top:6px" id="balanceCurrencySubLabel">USDC (Mock)</div>
+            <hr class="divider" style="margin:14px 0">
+            <div style="font-size:13px;color:var(--text-muted)" id="labelMyReserve">🏛️ 내 준비금 잔액</div>
+            <div style="font-size:24px;font-weight:700;color:var(--accent-cyan);margin-top:4px" id="myReserveBal">-</div>
+            <button class="btn btn-ghost btn-sm" onclick="copyMyAddr()" style="margin-top:12px">
+              📋 내 주소 복사
+            </button>
+          </div>
+          <hr class="divider">
+          <div style="font-size:12px;color:var(--text-secondary)">
+            <p>• 보험료 납입 시 USDC가 컨트랙트로 이전됩니다</p>
+            <p style="margin-top:4px">• 보험금 수령 시 USDC가 지갑으로 지급됩니다</p>
+            <p style="margin-top:4px">• approve → transfer 순서로 처리됩니다</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">📌 사용 흐름 안내</div>
+          <ol style="padding-left:16px;line-height:2;color:var(--text-secondary);font-size:13px">
+            <li>MetaMask 연결 및 컨트랙트 연결</li>
+            <li>이 탭에서 테스트 USDC 수령</li>
+            <li><b style="color:var(--text-primary)">관리자</b>: 보험증권 탭에서 증권 생성</li>
+            <li><b style="color:var(--text-primary)">피보험자</b>: 보험료 납입 탭에서 납입</li>
+            <li><b style="color:var(--text-primary)">피보험자</b>: 보험금 청구 탭에서 청구</li>
+            <li><b style="color:var(--text-primary)">관리자</b>: 관리자 패널에서 심사/지급</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────────────────────────────────────────────
+       TAB: 보험증권 관리
+  ──────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-policy">
+
+    <!-- 증권 생성 (관리자) -->
+    <div class="card hidden" id="cardCreatePolicy">
+      <div class="card-title">📋 새 보험증권 생성 <span style="font-size:11px;color:var(--accent-yellow);font-weight:400">(관리자 전용)</span></div>
+      <div class="admin-only-note">⚠️ 이 기능은 컨트랙트 오너(관리자)만 사용 가능합니다.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;align-items:end">
+        <div class="form-group" style="margin-bottom:0">
+          <label>피보험자 이름</label>
+          <input type="text" id="policyName" class="form-control" placeholder="홍길동">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>피보험자 지갑 주소</label>
+          <input type="text" id="policyPatient" class="form-control font-mono" placeholder="0x...">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>월 보험료 (USDC)</label>
+          <input type="number" id="policyPremium" class="form-control" placeholder="50" min="1">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>보장 한도 (USDC)</label>
+          <input type="number" id="policyCoverage" class="form-control" placeholder="1000" min="1">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:12px;align-items:end;margin-top:12px">
+        <div class="form-group" style="margin-bottom:0">
+          <label>만기 기간 (일)</label>
+          <input type="number" id="policyMaturityDays" class="form-control" placeholder="365" min="1" value="365">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>만기환급율 (%)</label>
+          <input type="number" id="policyMaturityRate" class="form-control" placeholder="70" min="0" max="100" value="70">
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);padding-bottom:4px">
+          💡 만기 시 <strong style="color:var(--accent-green)">납입 보험료 × 환급율</strong>을 자동 지급합니다.<br>
+          테스트 시 만기 기간을 짧게 설정 후 <code>advance-time.js</code>로 시간을 앞당기세요.
+        </div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+        <button class="btn btn-primary" onclick="createPolicy()">📋 보험증권 생성</button>
+        <button class="btn btn-ghost btn-sm" onclick="el('policyPatient').value=userAddr||''">내 주소 입력</button>
+        <span style="font-size:11px;color:var(--text-muted)">* 생성 전 피보험자에게 USDC 파우셋으로 자금을 미리 배포하세요</span>
+      </div>
+    </div>
+
+    <!-- 증권 목록 -->
+    <div class="card">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>📋 보험증권 목록</span>
+        <button class="btn btn-ghost btn-sm" onclick="refreshPolicies()">🔄 새로고침</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>피보험자</th>
+              <th>지갑 주소</th>
+              <th class="text-right">월 보험료</th>
+              <th class="text-right">보장 한도</th>
+              <th class="text-right">누적 납입</th>
+              <th>최근 납입</th>
+              <th>상태</th>
+            </tr>
+          </thead>
+          <tbody id="policyTableBody">
+            <tr><td colspan="8" class="text-center" style="color:var(--text-muted);padding:30px">컨트랙트를 연결하면 데이터가 표시됩니다</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────────────────────────────────────────────
+       TAB: 보험료 납입
+  ──────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-premium">
+    <div class="two-col">
+      <div>
+        <div class="card">
+          <div class="card-title">💳 보험료 납입</div>
+          <div class="alert alert-info">
+            <span>ℹ️</span>
+            <div>보험료 납입 시 자동으로 USDC approve → payPremium 순서로 처리됩니다. MetaMask에서 2번의 서명이 필요할 수 있습니다.</div>
+          </div>
+          <div class="form-group">
+            <label>보험증권 선택</label>
+            <select id="premiumPolicyId" class="form-control">
+              <option value="">-- 증권을 먼저 연결하세요 --</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-block btn-lg" onclick="payPremium()" style="margin-top:8px">
+            💳 보험료 납입하기
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">ℹ️ 납입 안내</div>
+          <ul style="padding-left:16px;line-height:1.9;color:var(--text-secondary);font-size:13px">
+            <li>보험료는 USDC 스테이블코인으로 납입됩니다</li>
+            <li>월 납입 기준이며, 납입 후 30일 후 다음 납입 기한이 설정됩니다</li>
+            <li>보험료 납입 내역은 블록체인에 영구 기록됩니다</li>
+            <li>미납 시 보험금 청구가 제한될 수 있습니다</li>
+            <li>납입 전 충분한 USDC 잔액이 있어야 합니다</li>
+          </ul>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="card-title">📊 납입 현황</div>
+          <div style="text-align:center;padding:12px 0">
+            <div style="color:var(--text-muted);font-size:13px">내 USDC 잔액</div>
+            <div style="font-size:32px;font-weight:700;color:var(--accent-green);margin:6px 0" id="premiumMyBalance">-</div>
+          </div>
+          <hr class="divider">
+          <div class="card-title" style="margin-top:0;font-size:14px;display:flex;justify-content:space-between;align-items:center">
+            <span>납입 이력 (수동+자동 전체)</span>
+            <button class="btn btn-ghost btn-sm" onclick="refreshPremiumHistory()">🔄</button>
+          </div>
+          <div class="table-wrap" style="max-height:280px;overflow-y:auto">
+            <table>
+              <thead>
+                <tr><th>증권</th><th>일시</th><th class="text-right">금액</th><th>방식</th><th class="text-right">누적</th></tr>
+              </thead>
+              <tbody id="premiumHistoryBody">
+                <tr><td colspan="5" class="text-center" style="color:var(--text-muted);padding:20px">증권을 연결하면 표시됩니다</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────────────────────────────────────────────
+       TAB: 보험금 청구
+  ──────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-claim">
+
+    <div class="two-col">
+      <div>
+        <div class="card">
+          <div class="card-title">🦷 보험금 청구 접수</div>
+          <div class="form-group">
+            <label>보험증권 선택</label>
+            <select id="claimPolicyId" class="form-control" onchange="refreshClaimCoverageInfo()">
+              <option value="">-- 증권을 먼저 연결하세요 --</option>
+            </select>
+          </div>
+          <div id="claimCoverageInfo" class="alert alert-info" style="display:none;font-size:13px">
+            <span>💰</span>
+            <div>
+              보장 한도: <strong id="claimCoverageLimit">-</strong> ·
+              누적 지급액: <strong id="claimTotalClaimed">-</strong> ·
+              <strong style="color:var(--accent-green)">청구 가능액: <span id="claimAvailable">-</span></strong>
+            </div>
+          </div>
+          <div class="form-group">
+            <label id="claimAmountLabel">청구 금액 (USDC)</label>
+            <input type="number" id="claimAmount" class="form-control" placeholder="300" min="1">
+          </div>
+          <div class="form-group">
+            <label>치료 코드 <span style="font-size:11px;color:var(--text-muted)">(ADA 코드)</span></label>
+            <select id="claimCode" class="form-control">
+              <option value="">-- 치료 코드 선택 --</option>
+              <optgroup label="예방 치료">
+                <option value="D0120">D0120 - 정기 검진</option>
+                <option value="D0150">D0150 - 종합 검진</option>
+                <option value="D0210">D0210 - 전악 X-ray</option>
+                <option value="D1110">D1110 - 스케일링 (성인)</option>
+                <option value="D1120">D1120 - 스케일링 (소아)</option>
+              </optgroup>
+              <optgroup label="복원 치료">
+                <option value="D2140">D2140 - 아말감 충전 (1면)</option>
+                <option value="D2150">D2150 - 아말감 충전 (2면)</option>
+                <option value="D2330">D2330 - 레진 충전 (1면)</option>
+                <option value="D2391">D2391 - 복합 레진</option>
+                <option value="D2740">D2740 - 포세린 크라운</option>
+                <option value="D2750">D2750 - 금속 융합 크라운</option>
+              </optgroup>
+              <optgroup label="근관 치료">
+                <option value="D3310">D3310 - 근관 치료 (전치부)</option>
+                <option value="D3320">D3320 - 근관 치료 (소구치)</option>
+                <option value="D3330">D3330 - 근관 치료 (대구치)</option>
+              </optgroup>
+              <optgroup label="외과">
+                <option value="D7140">D7140 - 단순 발치</option>
+                <option value="D7210">D7210 - 외과적 발치</option>
+                <option value="D7240">D7240 - 사랑니 발치</option>
+              </optgroup>
+              <optgroup label="보철">
+                <option value="D5110">D5110 - 완전 틀니 (상악)</option>
+                <option value="D5120">D5120 - 완전 틀니 (하악)</option>
+                <option value="D6010">D6010 - 임플란트 식립</option>
+                <option value="D6065">D6065 - 임플란트 크라운</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>치료 상세 설명 (선택)</label>
+            <textarea id="claimDesc" class="form-control" rows="3"
+                      placeholder="치료 내용을 상세히 기재해주세요..."></textarea>
+          </div>
+          <button class="btn btn-warning btn-block btn-lg" onclick="submitClaim()">
+            🦷 보험금 청구 접수
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="card-title">📌 청구 안내</div>
+          <ul style="padding-left:16px;line-height:1.9;color:var(--text-secondary);font-size:13px">
+            <li>청구 금액은 보장 한도 이내여야 합니다</li>
+            <li>보험료 납입 내역이 있어야 청구 가능합니다</li>
+            <li><strong style="color:var(--accent-green)">청구금액이 보장한도의 20% 이하</strong> + <strong>오라클 모드 ON</strong> → 청구 제출과 동시에 자동 승인+즉시 지급 (관리자 심사 없음)</li>
+            <li><strong>보장한도의 20% 초과</strong> → 오라클 모드 상태와 무관하게 <strong style="color:var(--accent-red)">항상 관리자 수동 심사</strong> 필요 (오라클은 절대 처리 불가)</li>
+            <li>오라클 모드가 <strong>OFF</strong>면 20% 이하 청구도 자동지급되지 않고 대기중(Pending) 상태로 남아 관리자 수동 심사를 거칩니다</li>
+            <li>모든 청구 내역은 블록체인에 영구 기록됩니다</li>
+          </ul>
+
+          <hr class="divider">
+          <div class="card-title" style="margin-top:0">처리 상태</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <span class="badge badge-pending">대기중</span>
+            <span class="badge badge-approved">승인됨</span>
+            <span class="badge badge-rejected">거절됨</span>
+            <span class="badge badge-paid">지급완료</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 청구 목록 -->
+    <div class="card">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>🦷 보험금 청구 목록</span>
+        <button class="btn btn-ghost btn-sm" onclick="refreshAll()">🔄 새로고침</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>청구ID</th>
+              <th>증권ID</th>
+              <th>청구자</th>
+              <th class="text-right">청구금액</th>
+              <th>치료코드</th>
+              <th>설명</th>
+              <th>상태</th>
+              <th>청구일시</th>
+              <th>작업</th>
+            </tr>
+          </thead>
+          <tbody id="claimTableBody">
+            <tr><td colspan="9" class="text-center" style="color:var(--text-muted);padding:30px">컨트랙트를 연결하면 데이터가 표시됩니다</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────────────────────────────────────────────
+       TAB: 관리자 패널
+  ──────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-admin">
+    <div class="admin-only-note" style="font-size:13px;padding:10px 0">
+      ⚠️ 이 패널은 컨트랙트 오너(관리자)만 조작할 수 있습니다.
+    </div>
+
+    <!-- Oracle 상태 배너 -->
+    <div class="card" style="margin-bottom:16px;border-left:3px solid #a78bfa">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div>
+          <div class="card-title" style="margin-bottom:4px">🏥 진료내역 오라클 (Oracle Service)</div>
+          <div style="font-size:12px;color:var(--text-muted)">
+            오라클 모드 활성화 시 청구 제출 즉시 병원 진료내역 자동 검증 → 승인/거절 + 자동 지급
+          </div>
+          <div style="margin-top:8px;font-size:12px;display:flex;gap:12px;flex-wrap:wrap">
+            <span>모드: <span id="oracleModeBadge" style="padding:2px 8px;border-radius:4px;font-size:11px;background:rgba(139,148,158,0.15);color:var(--text-muted)">로딩중</span></span>
+            <span>Oracle 주소: <code id="oracleAddrDisplay" style="font-size:11px">-</code></span>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm" style="background:rgba(35,134,54,0.15);color:var(--accent-green)" onclick="setOracleMode(true)">✅ 오라클 모드 ON</button>
+          <button class="btn btn-sm" style="background:rgba(139,148,158,0.1);color:var(--text-muted)" onclick="setOracleMode(false)">⏸ 오라클 모드 OFF</button>
+        </div>
+      </div>
+      <div class="alert" style="margin-top:12px;background:rgba(167,139,250,0.08);border-color:rgba(167,139,250,0.2)">
+        <span>💡</span>
+        <div style="font-size:11px">
+          오라클 서비스 실행: <code>node scripts/oracle-service.js</code><br>
+          HIRA API 교체: <code>.env</code> 에서 <code>HOSPITAL_PROVIDER=hira</code> 설정
+        </div>
+      </div>
+    </div>
+
+    <div class="two-col">
+
+      <!-- 청구 심사 -->
+      <div>
+        <div class="card">
+          <div class="card-title">⚖️ 보험금 청구 심사</div>
+          <div class="form-group">
+            <label>청구 ID</label>
+            <input type="number" id="adminClaimId" class="form-control" placeholder="청구 ID 입력">
+          </div>
+          <div class="form-group">
+            <label>거절 사유 (거절 시 필수)</label>
+            <input type="text" id="adminRejectReason" class="form-control"
+                   placeholder="사유 (예: 보장 범위 초과, 서류 미비 등)">
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-success" onclick="adminApproveClaim()">✅ 청구 승인</button>
+            <button class="btn btn-danger"  onclick="adminRejectClaim()">❌ 청구 거절</button>
+            <button class="btn btn-primary" onclick="adminPayClaim()">💰 보험금 지급</button>
+          </div>
+          <div class="alert alert-warning" style="margin-top:12px">
+            <span>⚠️</span>
+            <div>지급 처리 전 보험사 잔액이 청구 금액보다 많아야 합니다. 부족 시 준비금을 먼저 입금하세요.</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🏦 준비금 입금</div>
+          <div class="form-group">
+            <label>입금 금액 (USDC)</label>
+            <input type="number" id="depositAmount" class="form-control" placeholder="10000">
+          </div>
+          <button class="btn btn-cyan btn-block" onclick="adminDepositFunds()">
+            🏦 준비금 입금
+          </button>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:8px">
+            * 관리자 USDC 잔액에서 컨트랙트로 이전됩니다. approve가 자동 처리됩니다.
+          </p>
+        </div>
+      </div>
+
+      <!-- USDC 관리 & 빠른 작업 -->
+      <div>
+        <div class="card">
+          <div class="card-title">💵 USDC 관리자 민팅</div>
+          <div class="form-group">
+            <label>수령 주소</label>
+            <div class="input-group">
+              <input type="text" id="mintTo" class="form-control font-mono" placeholder="0x...">
+              <button class="btn btn-ghost btn-sm" onclick="el('mintTo').value=userAddr||''">내 주소</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>민팅 금액 (USDC)</label>
+            <input type="number" id="mintAmount" class="form-control" placeholder="100000">
+          </div>
+          <button class="btn btn-purple btn-block" onclick="adminMintUsdc()">
+            💵 USDC 민팅 (무제한)
+          </button>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:8px">
+            * 관리자 전용 민팅입니다. 파우셋과 달리 한도 없이 발행 가능합니다.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">📋 빠른 증권 조회</div>
+          <div class="form-group">
+            <label>증권 ID</label>
+            <div class="input-group">
+              <input type="number" id="queryPolicyId" class="form-control" placeholder="1">
+              <button class="btn btn-ghost" onclick="queryPolicy()">조회</button>
+            </div>
+          </div>
+          <pre id="policyQueryResult" style="
+            background:var(--bg-primary);
+            border:1px solid var(--border);
+            border-radius:6px;
+            padding:12px;
+            font-size:11px;
+            color:var(--text-secondary);
+            white-space:pre-wrap;
+            min-height:60px;
+            max-height:200px;
+            overflow-y:auto;
+          ">-- 조회 결과 --</pre>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🔍 빠른 청구 조회</div>
+          <div class="form-group">
+            <label>청구 ID</label>
+            <div class="input-group">
+              <input type="number" id="queryClaimId" class="form-control" placeholder="1">
+              <button class="btn btn-ghost" onclick="queryClaim()">조회</button>
+            </div>
+          </div>
+          <pre id="claimQueryResult" style="
+            background:var(--bg-primary);
+            border:1px solid var(--border);
+            border-radius:6px;
+            padding:12px;
+            font-size:11px;
+            color:var(--text-secondary);
+            white-space:pre-wrap;
+            min-height:60px;
+            max-height:200px;
+            overflow-y:auto;
+          ">-- 조회 결과 --</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────────────────────────────────────────────
+       TAB: 자동납부
+  ──────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-autopay">
+
+    <!-- 요약 카드 -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px">
+      <div class="card" style="text-align:center;padding:20px">
+        <div style="font-size:28px;font-weight:700;color:var(--accent-red)" id="autopayDueCount">-</div>
+        <div style="color:var(--text-muted);margin-top:6px;font-size:13px">⏰ 납입 기한 초과</div>
+      </div>
+      <div class="card" style="text-align:center;padding:20px">
+        <div style="font-size:28px;font-weight:700;color:var(--accent-green)" id="autopayOnCount">-</div>
+        <div style="color:var(--text-muted);margin-top:6px;font-size:13px">🟢 자동납부 ON</div>
+      </div>
+      <div class="card" style="text-align:center;padding:20px">
+        <div style="font-size:28px;font-weight:700;color:var(--accent-yellow)" id="autopayOffCount">-</div>
+        <div style="color:var(--text-muted);margin-top:6px;font-size:13px">🔴 자동납부 OFF</div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div>
+
+        <!-- 자동납부 ON/OFF 카드 -->
+        <div class="card">
+          <div class="card-title">🔄 자동납부 설정</div>
+          <div class="alert alert-info">
+            <span>ℹ️</span>
+            <div>
+              자동납부를 ON하면 스케줄러(<code>premium-scheduler.js</code>)가 납입 기한마다
+              자동으로 USDC를 수납합니다. MetaMask에서 <strong>한 번 approve</strong>만 하면 됩니다.
+            </div>
+          </div>
+          <div class="form-group">
+            <label>보험증권 선택</label>
+            <select id="autopayPolicyId" class="form-control" onchange="loadAutopayStatus()">
+              <option value="">-- 증권을 먼저 연결하세요 --</option>
+            </select>
+          </div>
+
+          <!-- 현재 상태 표시 -->
+          <div id="autopayStatusBox" style="display:none;
+               background:var(--bg-tertiary);border-radius:8px;padding:14px;margin-bottom:14px;font-size:13px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <span style="color:var(--text-muted)">자동납부 상태</span>
+              <span id="autopayStatusBadge" class="badge">-</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span style="color:var(--text-muted)">현재 허용량(Allowance)</span>
+              <span id="autopayAllowance" style="font-weight:600">-</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span style="color:var(--text-muted)">월 보험료</span>
+              <span id="autopayPremiumAmt" style="font-weight:600">-</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span style="color:var(--text-muted)">다음 납입 기한</span>
+              <span id="autopayNextDue" style="font-weight:600">-</span>
+            </div>
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:var(--text-muted)">자동이체 주기</span>
+              <span id="autopayCurrentInterval" style="font-weight:600">-</span>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="autopayOnBtn" class="btn btn-success" onclick="enableAutoPay()" disabled>
+              🟢 자동납부 ON (무제한 Approve)
+            </button>
+            <button id="autopayOffBtn" class="btn btn-danger" onclick="disableAutoPay()" disabled>
+              🔴 자동납부 OFF (Revoke)
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="loadAutopayStatus()">🔄 상태 새로고침</button>
+          </div>
+
+          <hr class="divider">
+
+          <div class="form-group">
+            <label>자동이체 주기 선택 (고객 직접 선택, 관리자 승인 불필요)</label>
+            <select id="premiumIntervalSelect" class="form-control">
+              <option value="300">⏱️ 5분 (테스트 전용 — 추후 삭제 예정)</option>
+              <option value="2592000" selected>📅 1개월</option>
+              <option value="7776000">📅 3개월</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-block" onclick="setMyPremiumInterval()">
+            🔁 자동이체 주기 변경
+          </button>
+        </div>
+
+        <!-- 안내 -->
+        <div class="card">
+          <div class="card-title">📌 자동납부 안내</div>
+          <ul style="padding-left:16px;line-height:2;color:var(--text-secondary);font-size:13px">
+            <li><strong>ON</strong>: <code>approve(contract, MaxUint256)</code> — 무제한 허용, 관리자 승인 없이 즉시 적용</li>
+            <li><strong>OFF</strong>: <code>approve(contract, 0)</code> — 허용 취소, 이 또한 관리자 승인 없이 즉시 적용</li>
+            <li>자동이체 주기(5분/1개월/3개월)는 피보험자 본인이 직접 선택하며, 선택 즉시 다음 납입 기한이 재계산됩니다</li>
+            <li>스케줄러가 30초마다 납입 기한을 확인하고 자동 수납합니다</li>
+            <li>잔액이 부족하거나 자동납부가 OFF이면 수납이 건너뜁니다</li>
+            <li>수납 성공 시 거래 로그에 <code>PremiumAutoCollected</code> 이벤트가 기록됩니다</li>
+          </ul>
+          <div style="background:var(--bg-tertiary);border-radius:6px;padding:10px;font-size:12px;color:var(--text-muted);margin-top:8px">
+            <strong>스케줄러 실행:</strong>
+            <code style="display:block;margin-top:4px">node scripts/premium-scheduler.js</code>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <!-- 납입 일정표 -->
+        <div class="card">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+            <span>📅 납입 일정표</span>
+            <button class="btn btn-ghost btn-sm" onclick="refreshAutopaySchedule()">🔄 새로고침</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>증권 ID</th>
+                  <th>피보험자</th>
+                  <th class="text-right">월 보험료</th>
+                  <th>다음 납입</th>
+                  <th>자동납부</th>
+                  <th>상태</th>
+                </tr>
+              </thead>
+              <tbody id="autopayScheduleBody">
+                <tr><td colspan="6" class="text-center" style="color:var(--text-muted);padding:30px">컨트랙트를 연결하면 표시됩니다</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────────────────────────────────────────────
+       TAB: 만기환급
+  ──────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-maturity">
+
+    <!-- 요약 카드 -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px">
+      <div class="card" style="text-align:center;padding:20px">
+        <div style="font-size:28px;font-weight:700;color:var(--accent-red)" id="maturityPendingCount">-</div>
+        <div style="color:var(--text-muted);font-size:13px;margin-top:4px">⏰ 만기 도달 (미지급)</div>
+      </div>
+      <div class="card" style="text-align:center;padding:20px">
+        <div style="font-size:28px;font-weight:700;color:var(--accent-green)" id="maturityPaidCount">-</div>
+        <div style="color:var(--text-muted);font-size:13px;margin-top:4px">💎 지급 완료</div>
+      </div>
+      <div class="card" style="text-align:center;padding:20px">
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+          <p>• 만기 도달 시 관리자가 <strong>💎 환급 지급</strong> 버튼을 클릭</p>
+          <p>• 또는 <code>maturity-watcher.js</code> 워처가 자동 처리</p>
+          <p>• 환급금 = 납입 보험료 × 환급율</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 환급금액 조회 -->
+    <div class="card">
+      <div class="card-title">🔍 만기환급금 조회</div>
+      <div style="display:flex;gap:8px;align-items:flex-end">
+        <div class="form-group" style="margin-bottom:0;flex:0 0 200px">
+          <label>증권 ID</label>
+          <input type="number" id="queryMaturityPolicyId" class="form-control" placeholder="1" min="1">
+        </div>
+        <button class="btn btn-ghost" onclick="queryMaturityRefund()">🔍 조회</button>
+      </div>
+      <pre id="maturityQueryResult" style="
+        background:var(--bg-primary);
+        border:1px solid var(--border);
+        border-radius:6px;
+        padding:12px;
+        font-size:12px;
+        color:var(--text-secondary);
+        white-space:pre-wrap;
+        min-height:80px;
+        max-height:250px;
+        overflow-y:auto;
+        margin-top:12px;
+      ">-- 증권 ID를 입력하고 조회하세요 --</pre>
+    </div>
+
+    <!-- 만기 설정 변경 (피보험자 본인, 관리자 승인 불필요) -->
+    <div class="card" id="cardMaturityMine">
+      <div class="card-title">🗓️ 내 증권 만기 설정 변경</div>
+      <div class="alert alert-info">
+        <span>ℹ️</span>
+        <div>본인 증권의 만기 시점을 직접 선택할 수 있습니다. 선택 즉시 적용되며 관리자 승인이 필요 없습니다. 이미 만기환급이 지급된 증권은 변경할 수 없습니다.</div>
+      </div>
+      <div class="form-group">
+        <label>보험증권 선택</label>
+        <select id="maturityPolicyId" class="form-control" onchange="loadMyMaturitySetting()">
+          <option value="">-- 증권을 먼저 연결하세요 --</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>만기 시점 선택</label>
+        <select id="maturityIntervalSelect" class="form-control">
+          <option value="300">⏱️ 5분 (테스트 전용 — 추후 삭제 예정)</option>
+          <option value="86400">📅 1일</option>
+          <option value="2592000" selected>📅 1개월</option>
+          <option value="7776000">📅 3개월</option>
+          <option value="31536000">📅 1년</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-block" onclick="setMyMaturityInterval()">🔁 만기 변경</button>
+      <div id="myMaturityCurrentBox" style="margin-top:10px;font-size:13px;color:var(--text-muted)"></div>
+    </div>
+
+    <!-- 수동 지급 (관리자) -->
+    <div class="card hidden" id="cardManualMaturity">
+      <div class="card-title">⚙️ 수동 만기환급 지급 <span style="font-size:11px;color:var(--accent-yellow);font-weight:400">(관리자 전용)</span></div>
+      <div style="display:flex;gap:8px;align-items:flex-end">
+        <div class="form-group" style="margin-bottom:0;flex:0 0 200px">
+          <label>증권 ID</label>
+          <input type="number" id="manualMaturityPolicyId" class="form-control" placeholder="1" min="1">
+        </div>
+        <button class="btn btn-primary" onclick="processMaturityRefund(parseInt(el('manualMaturityPolicyId').value))">
+          💎 만기환급 지급
+        </button>
+        <button class="btn btn-ghost" onclick="refreshMaturity()">🔄 새로고침</button>
+      </div>
+    </div>
+
+    <!-- 만기 일정표 -->
+    <div class="card">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>💎 만기환급 일정표</span>
+        <button class="btn btn-ghost btn-sm" onclick="refreshMaturity()">🔄 새로고침</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>증권ID</th>
+              <th>피보험자</th>
+              <th class="text-right">납입 합계</th>
+              <th class="text-right">환급율</th>
+              <th class="text-right">예상 환급액</th>
+              <th>만기일</th>
+              <th>상태</th>
+              <th>지급</th>
+            </tr>
+          </thead>
+          <tbody id="maturityTableBody">
+            <tr><td colspan="8" class="text-center" style="color:var(--text-muted);padding:30px">컨트랙트를 연결하면 데이터가 표시됩니다</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="alert alert-info" style="margin-top:12px">
+        <span>ℹ️</span>
+        <div>블록체인 시간 기준으로 만기 여부가 판단됩니다. 테스트 시 <code>node scripts/advance-time.js 600</code>으로 시간을 앞당길 수 있습니다.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────────────────────────────────────────────
+       TAB: 계약 심사 (청약 심사)
+  ──────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-underwriting">
+
+    <div class="two-col">
+
+      <!-- 청약 신청 (피보험자) -->
+      <div>
+        <div class="card">
+          <div class="card-title">📝 보험 청약 신청</div>
+          <div class="alert alert-info">
+            <span>ℹ️</span>
+            <div>스마트 컨트랙트가 연령·보험료·보장한도 비율·기가입 건수를 자동으로 심사합니다.<br>
+              <strong>보장한도/월보험료 비율 10배 이하</strong> → 관리자 승인 없이 그 자리에서 즉시 승인되어 보험증권 생성<br>
+              <strong>비율 100배 초과</strong> 또는 나이·최소보험료·가입건수 룰 위반 → 즉시 거절(트랜잭션은 성공, 청약만 거절 처리)<br>
+              <strong>비율 10~100배 사이</strong> → 대기(Pending) 상태로 접수되어 관리자 수동 심사 필요</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="form-group" style="margin-bottom:0">
+              <label>청약자 이름</label>
+              <input type="text" id="appName" class="form-control" placeholder="홍길동">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label>나이 (만 나이)</label>
+              <input type="number" id="appAge" class="form-control" placeholder="35" min="1" max="120">
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+            <div class="form-group" style="margin-bottom:0">
+              <label id="appPremiumLabel">월 보험료 (USDC)</label>
+              <input type="number" id="appPremium" class="form-control" placeholder="50" min="1">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label id="appCoverageLabel">보장 한도 (USDC)</label>
+              <input type="number" id="appCoverage" class="form-control" placeholder="1000" min="1">
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+            <div class="form-group" style="margin-bottom:0">
+              <label>보험 기간 (일)</label>
+              <input type="number" id="appMaturityDays" class="form-control" placeholder="365" min="1" value="365">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label>만기환급율 (%)</label>
+              <input type="number" id="appRefundRate" class="form-control" placeholder="70" min="0" max="100" value="70">
+            </div>
+          </div>
+          <button class="btn btn-primary btn-block btn-lg" onclick="submitApplication()" style="margin-top:16px">
+            📝 청약 신청하기
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⚖️ 자동 심사 룰</div>
+          <ul style="padding-left:16px;line-height:2;color:var(--text-secondary);font-size:13px">
+            <li>가입 가능 연령: <strong style="color:var(--text-primary)">만 18세 ~ 75세</strong></li>
+            <li id="appMinPremiumRule">최소 월 보험료: <strong style="color:var(--text-primary)">1 USDC 이상</strong></li>
+            <li>1인 동시 가입: <strong style="color:var(--text-primary)">최대 3건</strong></li>
+            <li>보장한도/월보험료 <strong style="color:var(--accent-green)">10배 이하</strong>: <strong style="color:var(--text-primary)">즉시 자동승인</strong></li>
+            <li>보장한도/월보험료 <strong style="color:var(--accent-yellow)">10~100배</strong>: <strong style="color:var(--text-primary)">관리자 심사 대기</strong></li>
+            <li>보장한도/월보험료 <strong style="color:var(--accent-red)">100배 초과</strong>: <strong style="color:var(--text-primary)">즉시 거절</strong></li>
+            <li>위험 점수 산정: 연령·보장비율 기반 0~100점</li>
+          </ul>
+          <hr class="divider">
+          <div style="font-size:12px;color:var(--text-muted)">
+            💡 위험 점수는 승인 여부에 영향을 주지 않는 참고용 지표이며, 관리자가 대기중 청약을 심사할 때 참고합니다.
+          </div>
+        </div>
+      </div>
+
+      <!-- 관리자 청약 심사 패널 -->
+      <div>
+        <div class="card">
+          <div class="card-title">⚡ 3단계 자동심사 안내</div>
+          <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+            <ul style="padding-left:16px;line-height:2">
+              <li>비율 <strong style="color:var(--accent-green)">10배 이하</strong> → 청약 제출 트랜잭션 안에서 바로 보험증권 생성 (상태: <span class="badge badge-approved" style="font-size:11px">승인됨</span>)</li>
+              <li>비율 <strong style="color:var(--accent-yellow)">10~100배</strong> → 상태 <span class="badge badge-pending" style="font-size:11px">대기중</span>, 아래에서 관리자가 승인/거절</li>
+              <li>비율 <strong style="color:var(--accent-red)">100배 초과</strong> 또는 기본 룰 위반 → 즉시 거절 (상태: <span class="badge badge-rejected" style="font-size:11px">거절됨</span>)</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card hidden" id="cardAdminAppReview">
+          <div class="card-title">⚙️ 청약 심사 처리 <span style="font-size:11px;color:var(--accent-yellow);font-weight:400">(관리자 전용)</span></div>
+          <div class="admin-only-note">⚠️ 아래 기능은 컨트랙트 오너(관리자)만 사용 가능하며, 대기중(Pending) 청약에만 적용됩니다.</div>
+          <div class="form-group">
+            <label>청약 ID</label>
+            <input type="number" id="adminAppId" class="form-control" placeholder="청약 ID 입력">
+          </div>
+          <div class="form-group">
+            <label>거절 사유 (거절 시 입력)</label>
+            <input type="text" id="adminAppRejectReason" class="form-control"
+                   placeholder="예: 추가 서류 미제출, 위험 등급 초과 등">
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-success" onclick="approveApplication()">✅ 청약 승인 (증권 생성)</button>
+            <button class="btn btn-danger"  onclick="rejectApplicationAdmin()">❌ 청약 거절</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 청약 목록 -->
+    <div class="card">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>📋 청약 목록</span>
+        <button class="btn btn-ghost btn-sm" onclick="refreshApplications()">🔄 새로고침</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>청약ID</th>
+              <th>청약자</th>
+              <th>이름</th>
+              <th>나이</th>
+              <th class="text-right">월보험료</th>
+              <th class="text-right">보장한도</th>
+              <th>기간(일)</th>
+              <th>위험점수</th>
+              <th>상태</th>
+              <th>증권ID</th>
+              <th>청약일</th>
+              <th>거절사유</th>
+            </tr>
+          </thead>
+          <tbody id="appTableBody">
+            <tr><td colspan="12" class="text-center" style="color:var(--text-muted);padding:30px">컨트랙트를 연결하면 데이터가 표시됩니다</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────────────────────────────────────────────
+       TAB: 약관대출
+  ──────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-loan">
+
+    <div class="two-col">
+
+      <!-- 대출 신청 -->
+      <div>
+        <div class="card">
+          <div class="card-title">💵 약관대출 신청</div>
+          <div class="alert alert-info">
+            <span>ℹ️</span>
+            <div>납입 보험료의 해지환급금(납입액 × 환급율%) 중 최대 <strong>80%</strong>까지 대출 가능합니다.<br>
+              연 이자율 <strong>5%</strong>이며, 상환 시 원금 + 이자를 일시 납부합니다.</div>
+          </div>
+          <div class="form-group">
+            <label>보험증권 선택</label>
+            <select id="loanPolicyId" class="form-control" onchange="refreshLoanInfo()">
+              <option value="">-- 증권을 먼저 연결하세요 --</option>
+            </select>
+          </div>
+
+          <!-- 대출 한도 정보 -->
+          <div id="loanInfoBox" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:12px;display:none">
+            <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">📊 대출 가능 현황</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px">
+              <div><span style="color:var(--text-muted)">누적 납입:</span> <strong id="loanTotalPaid">-</strong></div>
+              <div><span style="color:var(--text-muted)">해지환급금:</span> <strong id="loanSurrenderVal">-</strong></div>
+              <div><span style="color:var(--text-muted)">최대 대출:</span> <strong id="loanMaxAmount" style="color:var(--accent-green)">-</strong></div>
+              <div><span style="color:var(--text-muted)">대출 상태:</span> <strong id="loanActiveStatus">-</strong></div>
+            </div>
+            <!-- 현재 대출 중인 경우 -->
+            <div id="loanCurrentBox" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+              <div style="font-size:12px;color:var(--accent-yellow);margin-bottom:6px">⚠️ 미상환 대출 있음</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px">
+                <div><span style="color:var(--text-muted)">원금:</span> <strong id="loanPrincipal">-</strong></div>
+                <div><span style="color:var(--text-muted)">이자:</span> <strong id="loanInterest" style="color:var(--accent-red)">-</strong></div>
+                <div><span style="color:var(--text-muted)">총 상환액:</span> <strong id="loanRepayTotal" style="color:var(--accent-red)">-</strong></div>
+                <div><span style="color:var(--text-muted)">대출일:</span> <small id="loanBorrowedAt">-</small></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 대출 신청 폼 -->
+          <div id="loanRequestBox">
+            <div class="form-group">
+              <label id="loanAmountLabel">대출 금액 (USDC)</label>
+              <input type="number" id="loanAmount" class="form-control" placeholder="대출 금액 입력" min="1">
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+              <button class="btn btn-ghost btn-sm" onclick="setLoanAmount(0.25)">25%</button>
+              <button class="btn btn-ghost btn-sm" onclick="setLoanAmount(0.5)">50%</button>
+              <button class="btn btn-ghost btn-sm" onclick="setLoanAmount(0.75)">75%</button>
+              <button class="btn btn-ghost btn-sm" onclick="setLoanAmount(1.0)">최대</button>
+            </div>
+            <button id="loanRequestBtn" class="btn btn-primary btn-block btn-lg" onclick="requestPolicyLoan()">
+              💵 대출 신청하기
+            </button>
+          </div>
+
+          <!-- 상환 폼 (대출 중인 경우) -->
+          <div id="loanRepayBox" style="display:none">
+            <div class="alert alert-warning">
+              <span>⚠️</span>
+              <div id="loanRepayNote">상환 전 USDC 잔액을 확인하세요. 원금 + 이자를 한 번에 상환합니다.<br>
+                상환 시 USDC approve → repay 순으로 처리됩니다.</div>
+            </div>
+            <button class="btn btn-success btn-block btn-lg" onclick="repayPolicyLoan()">
+              💳 대출 상환하기 (원금 + 이자)
+            </button>
+
+            <hr class="divider">
+            <div class="form-group">
+              <label>부분 상환 금액 (USDC) <span style="font-size:11px;color:var(--text-muted)">— 발생 이자는 항상 전액 우선 충당, 초과분은 원금 상환</span></label>
+              <input type="number" id="loanPartialAmount" class="form-control" placeholder="이자 이상 입력" min="0" step="0.01">
+            </div>
+            <button class="btn btn-primary btn-block" onclick="repayPolicyLoanPartial()">
+              💵 부분 상환하기
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 약관대출 안내 -->
+      <div>
+        <div class="card">
+          <div class="card-title">📌 약관대출 안내</div>
+          <ul style="padding-left:16px;line-height:2;color:var(--text-secondary);font-size:13px">
+            <li>최소 1회 이상 보험료 납입 후 신청 가능합니다</li>
+            <li>대출 한도 = <strong>납입액 × 환급율 × 80%</strong></li>
+            <li>이자율: 연 <strong>5%</strong> 단순 이자 (블록체인 시간 기준)</li>
+            <li>기존 대출 미상환 시 신규 대출 불가합니다</li>
+            <li>상환은 원금 + 이자 전액 일시 상환입니다</li>
+            <li>미상환 대출은 보험 만기환급금에 영향 없습니다</li>
+          </ul>
+          <hr class="divider">
+          <div class="card-title" style="margin-top:0">💡 대출 한도 예시</div>
+          <div id="loanExampleBox" style="font-size:12px;color:var(--text-muted);line-height:1.8">
+            납입 보험료 100 USDC, 환급율 70% 기준:<br>
+            해지환급금 = 100 × 70% = <strong style="color:var(--accent-green)">70 USDC</strong><br>
+            최대 대출액 = 70 × 80% = <strong style="color:var(--accent-blue)">56 USDC</strong>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">📋 내 보험증권 납입 현황</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>증권ID</th>
+                  <th>이름</th>
+                  <th class="text-right">납입액</th>
+                  <th class="text-right">최대대출</th>
+                  <th>대출상태</th>
+                </tr>
+              </thead>
+              <tbody id="loanPolicyTable">
+                <tr><td colspan="5" class="text-center" style="color:var(--text-muted);padding:20px">데이터 없음</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="refreshLoanPolicies()" style="margin-top:8px">🔄 새로고침</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────────────────────────────────────────────
+       TAB: 준비금 계좌 (Reserve Fund)
+  ──────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-reserve">
+    <div class="two-col">
+
+      <!-- 좌측: 내 준비금 계좌(일반) 또는 전체 현황(관리자) -->
+      <div>
+        <div id="cardReserveMine" class="card">
+          <div class="card-title">🏛️ 내 준비금 계좌</div>
+          <div class="alert alert-info">
+            <span>ℹ️</span>
+            <div>보험사에 송금하면 준비금으로 적립되며, 연 <strong>5%</strong>가 매일 복리로 쌓입니다.<br>인출 신청 시 그동안의 이자가 먼저 반영된 뒤 지급됩니다.</div>
+          </div>
+          <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px">
+              <div><span style="color:var(--text-muted)">원금(확정):</span> <strong id="reserveMyPrincipal">-</strong></div>
+              <div><span style="color:var(--text-muted)">예상 잔액(이자포함):</span> <strong id="reserveMyProjected" style="color:var(--accent-green)">-</strong></div>
+              <div><span style="color:var(--text-muted)">미반영 이자:</span> <strong id="reserveMyPendingInterest" style="color:var(--accent-cyan)">-</strong></div>
+              <div><span style="color:var(--text-muted)">누적 이자:</span> <strong id="reserveMyTotalInterest" style="color:var(--accent-cyan)">-</strong></div>
+              <div><span style="color:var(--text-muted)">누적 송금:</span> <strong id="reserveMyTotalDeposited">-</strong></div>
+              <div><span style="color:var(--text-muted)">누적 인출:</span> <strong id="reserveMyTotalWithdrawn">-</strong></div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label id="reserveDepositLabel">송금 금액 (USDC)</label>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">송금 가능 금액(내 지갑): <strong id="reserveMyWalletBal" style="color:var(--text-secondary)">-</strong></div>
+            <input type="number" id="reserveDepositAmount" class="form-control" placeholder="보험사로 송금할 금액" min="0" step="0.01">
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="setReserveDepositMax()" style="margin-bottom:8px">지갑 잔액 전액 입력</button>
+          <button class="btn btn-primary btn-block" onclick="depositReserve()">💸 송금하기 (준비금 적립)</button>
+
+          <hr class="divider">
+
+          <div class="form-group">
+            <label id="reserveWithdrawLabel">인출 금액 (USDC)</label>
+            <input type="number" id="reserveWithdrawAmount" class="form-control" placeholder="인출할 금액" min="0" step="0.01">
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="setReserveWithdrawMax()" style="margin-bottom:8px">예상 잔액 전액 입력</button>
+          <button class="btn btn-success btn-block" onclick="withdrawReserve()">💰 인출하기 (이자 반영 후 지급)</button>
+        </div>
+
+        <div id="cardReserveAdmin" class="card hidden">
+          <div class="card-title">🏛️ 전체 고객 준비금 현황 (관리자)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:13px;margin-bottom:12px">
+            <div><span style="color:var(--text-muted)">고객 수:</span> <strong id="reserveAdminHolderCount">-</strong></div>
+            <div><span style="color:var(--text-muted)">총 준비금(이자포함):</span> <strong id="reserveAdminTotal" style="color:var(--accent-green)">-</strong></div>
+            <div><span style="color:var(--text-muted)">총 누적이자:</span> <strong id="reserveAdminTotalInterest" style="color:var(--accent-cyan)">-</strong></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>고객</th>
+                  <th class="text-right">원금(확정)</th>
+                  <th class="text-right">예상잔액(이자포함)</th>
+                  <th class="text-right">누적이자</th>
+                  <th class="text-right">누적송금</th>
+                  <th class="text-right">누적인출</th>
+                </tr>
+              </thead>
+              <tbody id="reserveAdminTable">
+                <tr><td colspan="6" class="text-center" style="color:var(--text-muted);padding:20px">데이터 없음</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 우측: 송금/인출 내역 -->
+      <div>
+        <div class="card">
+          <div class="card-title" id="reserveHistoryTitle">📜 내 송금/인출 내역</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>구분</th>
+                  <th id="reserveHistoryPatientCol" style="display:none">고객</th>
+                  <th class="text-right">금액</th>
+                  <th class="text-right">이후 원금</th>
+                  <th>시각</th>
+                </tr>
+              </thead>
+              <tbody id="reserveHistoryBody">
+                <tr><td colspan="5" class="text-center" style="color:var(--text-muted);padding:20px">내역 없음</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="refreshReserve()" style="margin-top:8px">🔄 새로고침</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────────────────────────────────────────────
+       TAB: 블록체인 상태
+  ──────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-state">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <button class="btn btn-ghost" onclick="refreshBlockchainState()">🔄 새로고침</button>
+    </div>
+
+    <div class="state-grid">
+
+      <div class="state-section">
+        <h3>🌐 네트워크 정보</h3>
+        <ul class="kv-list">
+          <li><span class="kv-key">네트워크</span><span class="kv-value blue" id="stateNetwork">-</span></li>
+          <li><span class="kv-key">Chain ID</span><span class="kv-value" id="stateChainId">-</span></li>
+          <li><span class="kv-key">최신 블록</span><span class="kv-value blue" id="stateBlockNum">-</span></li>
+          <li><span class="kv-key">블록 타임스탬프</span><span class="kv-value" id="stateTimestamp">-</span></li>
+        </ul>
+      </div>
+
+      <div class="state-section">
+        <h3>📄 컨트랙트 정보</h3>
+        <ul class="kv-list">
+          <li><span class="kv-key">DentalInsurance</span><span class="kv-value font-mono" id="stateInsAddr">-</span></li>
+          <li><span class="kv-key">MockUSDC</span><span class="kv-value font-mono" id="stateUsdcAddr">-</span></li>
+          <li><span class="kv-key">컨트랙트 오너</span><span class="kv-value font-mono" id="stateOwner">-</span></li>
+          <li><span class="kv-key">USDC 총 발행량</span><span class="kv-value" id="stateUsdcSupply">-</span></li>
+        </ul>
+      </div>
+
+      <div class="state-section">
+        <h3>💰 보험 재무 현황</h3>
+        <ul class="kv-list">
+          <li><span class="kv-key">보험사 잔액</span><span class="kv-value yellow" id="stateContractBal">-</span></li>
+          <li><span class="kv-key">총 보험료 수납</span><span class="kv-value blue" id="statePremiums">-</span></li>
+          <li><span class="kv-key">총 보험금 지급</span><span class="kv-value red" id="statePaid">-</span></li>
+          <li><span class="kv-key">손익 (수납-지급)</span><span class="kv-value green" id="stateProfit">-</span></li>
+        </ul>
+      </div>
+
+      <div class="state-section">
+        <h3>📊 운영 통계</h3>
+        <ul class="kv-list">
+          <li><span class="kv-key">총 보험증권 수</span><span class="kv-value blue" id="statePolicies2">-</span></li>
+          <li><span class="kv-key">총 청구 건수</span><span class="kv-value" id="stateClaims2">-</span></li>
+          <li><span class="kv-key">내 USDC 잔액</span><span class="kv-value green" id="stateMyBal">-</span></li>
+        </ul>
+      </div>
+
+    </div>
+
+    <!-- 이벤트 스트림 (최근 이벤트) -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">📡 컨트랙트 이벤트 스트림</div>
+      <div class="alert alert-info" style="margin-bottom:12px">
+        <span>ℹ️</span>
+        <div>컨트랙트에서 발생하는 이벤트를 실시간으로 수신합니다. 거래 로그 탭에서 상세 내용을 확인하세요.</div>
+      </div>
+      <div id="eventStream" style="
+        height:200px;
+        overflow-y:auto;
+        background:var(--bg-primary);
+        border:1px solid var(--border);
+        border-radius:var(--radius);
+        padding:12px;
+        font-family:monospace;
+        font-size:12px;
+        color:var(--text-secondary);
+      ">이벤트 대기 중...</div>
+    </div>
+  </div>
+
+  <!-- ────────────────────────────────────────────
+       TAB: 거래 로그
+  ──────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-log">
+
+    <!-- 툴바 -->
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+      <span style="font-size:13px;font-weight:600;color:var(--text-secondary)">📜 전체 행위 로그</span>
+      <span style="font-size:11px;color:var(--text-muted)">총 <span id="logCount_all">0</span>건</span>
+      <div style="flex:1"></div>
+      <!-- 검색 -->
+      <input type="text" placeholder="🔍 로그 검색..."
+             oninput="onLogSearch(this.value)"
+             style="padding:5px 10px;background:var(--bg-input);border:1px solid var(--border);
+                    border-radius:6px;color:var(--text-primary);font-size:12px;width:200px">
+      <button id="autoScrollBtn" class="btn btn-ghost btn-sm" onclick="toggleAutoScroll()">⬆ 자동스크롤 ON</button>
+      <button class="btn btn-ghost btn-sm" onclick="exportLog()">💾 내보내기</button>
+      <button class="btn btn-ghost btn-sm" onclick="clearLog()">🗑️ 초기화</button>
+    </div>
+
+    <!-- 필터 버튼 -->
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn btn-sm log-filter-btn active" data-filter="all"
+              onclick="setLogFilter('all')"
+              style="border-color:var(--text-muted)">
+        전체 <span id="logCount_all2" class="log-badge" style="background:var(--text-muted)">0</span>
+      </button>
+      <button class="btn btn-sm log-filter-btn" data-filter="error"
+              onclick="setLogFilter('error')"
+              style="border-color:var(--accent-red);color:var(--accent-red)">
+        ❌ 오류 <span id="logCount_error" class="log-badge" style="background:var(--accent-red)">0</span>
+      </button>
+      <button class="btn btn-sm log-filter-btn" data-filter="success"
+              onclick="setLogFilter('success')"
+              style="border-color:var(--accent-green);color:var(--accent-green)">
+        ✅ 성공 <span id="logCount_success" class="log-badge" style="background:var(--accent-green)">0</span>
+      </button>
+      <button class="btn btn-sm log-filter-btn" data-filter="event"
+              onclick="setLogFilter('event')"
+              style="border-color:var(--accent-blue);color:var(--accent-blue)">
+        📡 이벤트 <span id="logCount_event" class="log-badge" style="background:var(--accent-blue)">0</span>
+      </button>
+      <button class="btn btn-sm log-filter-btn" data-filter="step"
+              onclick="setLogFilter('step')"
+              style="border-color:var(--accent-cyan);color:var(--dental-teal)">
+        🔄 단계 <span id="logCount_step" class="log-badge" style="background:var(--dental-teal)">0</span>
+      </button>
+      <button class="btn btn-sm log-filter-btn" data-filter="warning"
+              onclick="setLogFilter('warning')"
+              style="border-color:var(--accent-yellow);color:var(--accent-yellow)">
+        ⚠️ 경고 <span id="logCount_warning" class="log-badge" style="background:var(--accent-yellow)">0</span>
+      </button>
+      <button class="btn btn-sm log-filter-btn" data-filter="info"
+              onclick="setLogFilter('info')"
+              style="border-color:var(--text-muted);color:var(--text-muted)">
+        ℹ️ 정보 <span id="logCount_info" class="log-badge" style="background:var(--text-muted)">0</span>
+      </button>
+      <button class="btn btn-sm log-filter-btn" data-filter="call"
+              onclick="setLogFilter('call')"
+              style="border-color:var(--accent-purple);color:var(--accent-purple)">
+        📞 조회 <span id="logCount_call" class="log-badge" style="background:var(--accent-purple)">0</span>
+      </button>
+    </div>
+
+    <!-- 로그 컨테이너 -->
+    <div id="txLog" class="tx-log">
+      <!-- 로그 엔트리가 여기에 동적으로 추가됩니다 -->
+    </div>
+
+    <!-- 하단 요약 -->
+    <div style="margin-top:8px;font-size:11px;color:var(--text-muted);display:flex;gap:16px">
+      <span>❌ 오류: <strong id="logCount_error2">0</strong></span>
+      <span>⚠️ 경고: <strong id="logCount_warning2">0</strong></span>
+      <span>✅ 성공: <strong id="logCount_success2">0</strong></span>
+      <span>📡 이벤트: <strong id="logCount_event2">0</strong></span>
+      <span style="margin-left:auto">최대 500건 보관 · 🔗 TxHash 클릭 → 클립보드 복사</span>
+    </div>
+  </div>
+
+</div><!-- /main-layout -->
+
+<!-- ══════════════════════════════════════════════
+     SCRIPTS
+════════════════════════════════════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.7.0/dist/ethers.umd.min.js"></script>
+<script src="app.js"></script>
+<script>
+// 관리자 탭 - 증권/청구 상세 조회
+async function queryPolicy() {
+  if (!insCtx) { showToast("컨트랙트를 먼저 연결하세요.", "warning"); return; }
+  const id = el("queryPolicyId").value;
+  if (!id) return;
+  try {
+    addLog("call", `getPolicy(${id}) 직접 조회`);
+    const p = await insCtx.getPolicy(id);
+    const result = {
+      id: p.id.toString(), patient: p.patient, patientName: p.patientName,
+      monthlyPremium: fmtUsdc(p.monthlyPremium) + " USDC",
+      coverageLimit: fmtUsdc(p.coverageLimit) + " USDC",
+      totalPaid: fmtUsdc(p.totalPaid) + " USDC",
+      lastPaymentTime: tsToDate(p.lastPaymentTime),
+      nextDueTime: tsToDate(p.nextDueTime),
+      active: p.active, createdAt: tsToDate(p.createdAt)
+    };
+    el("policyQueryResult").textContent = JSON.stringify(result, null, 2);
+    addLog("success", `getPolicy(${id}) 조회 완료`, JSON.stringify(result, null, 2));
+  } catch (e) {
+    el("policyQueryResult").textContent = "오류: " + e.message;
+    addLog("error", `getPolicy(${id}) 조회 실패`, parseError(e));
+  }
+}
+
+async function queryClaim() {
+  if (!insCtx) { showToast("컨트랙트를 먼저 연결하세요.", "warning"); return; }
+  const id = el("queryClaimId").value;
+  if (!id) return;
+  try {
+    addLog("call", `getClaim(${id}) 직접 조회`);
+    const c = await insCtx.getClaim(id);
+    const result = {
+      id: c.id.toString(), policyId: c.policyId.toString(),
+      patient: c.patient, amount: fmtUsdc(c.amount) + " USDC",
+      treatmentCode: c.treatmentCode, description: c.description,
+      status: CLAIM_STATUS[Number(c.status)],
+      submittedAt: tsToDate(c.submittedAt), processedAt: tsToDate(c.processedAt),
+      rejectReason: c.rejectReason || "(없음)"
+    };
+    el("claimQueryResult").textContent = JSON.stringify(result, null, 2);
+    addLog("success", `getClaim(${id}) 조회 완료`, JSON.stringify(result, null, 2));
+  } catch (e) {
+    el("claimQueryResult").textContent = "오류: " + e.message;
+    addLog("error", `getClaim(${id}) 조회 실패`, parseError(e));
+  }
+}
+
+// 이벤트 스트림 (블록체인 상태 탭) - addLog 연동
+function updateEventStream(type, msg) {
+  const container = el("eventStream");
+  if (!container) return;
+  const colors = { success:"var(--accent-green)", error:"var(--accent-red)", event:"var(--accent-blue)",
+                   info:"var(--text-muted)", warning:"var(--accent-yellow)", step:"var(--dental-teal)", call:"var(--accent-purple)" };
+  const line = document.createElement("div");
+  line.style.cssText = "padding:3px 0;border-bottom:1px solid var(--border);font-size:11px";
+  line.innerHTML = `<span style="color:${colors[type]||colors.info}">[${new Date().toLocaleTimeString("ko-KR",{hour12:false})}] [${type.toUpperCase()}]</span> ${msg.replace(/&/g,"&amp;").replace(/</g,"&lt;")}`;
+  if (container.firstChild) container.insertBefore(line, container.firstChild);
+  else container.appendChild(line);
+  while (container.children.length > 80) container.removeChild(container.lastChild);
+}
+
+// addLog 후처리로 이벤트 스트림도 미러링
+const _origAddLog = window.addLog;
+window.addLog = function(type, msg, detail, hash) {
+  _origAddLog(type, msg, detail, hash);
+  updateEventStream(type, msg);
+};
+</script>
+
+<!-- ══════════════════════════════════════════════
+     NETWORK GUIDE MODAL
+════════════════════════════════════════════════ -->
+<div id="networkModal" class="network-modal-overlay hidden">
+  <div class="network-modal-box">
+    <div class="network-modal-title">⚠️ 네트워크 전환 필요</div>
+    <p style="color:var(--text-secondary);margin:0 0 16px;font-size:14px;line-height:1.6">
+      MetaMask가 <strong style="color:#f87171">Hardhat Local (chainId 31337)</strong> 네트워크에
+      연결되어 있지 않습니다.<br>아래 절차대로 MetaMask에서 직접 전환해주세요.
+    </p>
+
+    <div class="network-modal-steps">
+      <div class="network-modal-step">
+        <span class="step-num">1</span>
+        <div>
+          MetaMask 확장을 열고 상단 <strong>네트워크 드롭다운</strong>을 클릭하세요.
+        </div>
+      </div>
+      <div class="network-modal-step">
+        <span class="step-num">2</span>
+        <div>
+          목록에서 <strong style="color:#34d399">Localhost 8545</strong> 또는
+          <strong style="color:#34d399">Hardhat Local</strong> 을 선택하세요.
+        </div>
+      </div>
+      <div class="network-modal-step">
+        <span class="step-num">3</span>
+        <div>
+          없으면 <strong>[네트워크 추가]</strong> → <strong>[사용자 정의 RPC]</strong> 를 클릭해
+          아래 정보를 입력하세요.
+        </div>
+      </div>
+    </div>
+
+    <div class="network-modal-info">
+      <div class="info-row"><span class="info-label">네트워크 이름</span><code>Hardhat Local</code></div>
+      <div class="info-row"><span class="info-label">RPC URL</span><code>http://127.0.0.1:8545</code>
+        <button class="copy-btn" onclick="navigator.clipboard.writeText('http://127.0.0.1:8545').then(()=>showToast('RPC URL 복사됨'))">복사</button>
+      </div>
+      <div class="info-row"><span class="info-label">체인 ID</span><code>31337</code>
+        <button class="copy-btn" onclick="navigator.clipboard.writeText('31337').then(()=>showToast('체인 ID 복사됨'))">복사</button>
+      </div>
+      <div class="info-row"><span class="info-label">통화 기호</span><code>ETH</code></div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:20px">
+      <button class="btn btn-success" style="flex:1;padding:12px"
+              onclick="hideNetworkModal(); connectWallet();">
+        ✅ 전환 완료 → 다시 연결
+      </button>
+      <button class="btn" style="background:var(--bg-tertiary);color:var(--text-secondary);padding:12px 18px"
+              onclick="hideNetworkModal()">
+        닫기
+      </button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

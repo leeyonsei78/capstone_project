@@ -1,0 +1,14 @@
+# OS
+Thumbs.db
+.DS_Store
+
+# 에디터
+.vscode/
+.idea/
+
+# Python bytecode (모든 하위 폴더)
+__pycache__/
+*.pyc
+
+# Claude Code 로컬 설정
+.claude/

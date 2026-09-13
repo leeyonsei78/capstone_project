@@ -1,0 +1,42 @@
+# Hardhat 빌드 산출물
+artifacts/
+cache/
+typechain/
+typechain-types/
+
+# 의존성
+node_modules/
+
+# 환경변수 (민감정보)
+.env
+
+# 배포 정보 (로컬 전용, 배포 시 자동 생성)
+frontend/config.json
+
+# run.bat 실행 로그
+run_stdout.log
+run_stderr.log
+
+# blockchain_bridge.py 자동 기동 마커 (로컬 전용)
+.services_started
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 에디터
+.vscode/
+.idea/
+*.swp
+
+# 백업 파일
+\#Backup/
+\#Backup.zip
+*.zip
+*.pptx
+
+# 개인 자료 / 학기 자료
+2026-1학기/
+
+# Claude Code 내부 설정
+.claude/
