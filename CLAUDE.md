@@ -1,0 +1,57 @@
+# CLAUDE.md
+
+이 파일은 Claude Code가 이 저장소에서 작업할 때 참고하는 프로젝트 개요입니다.
+하위 `insurance_agent/CLAUDE.md`는 AI 어시스턴트 자체의 상세 아키텍처를 다루고,
+이 파일은 **두 프로젝트의 통합 지점**을 다룹니다.
+
+## 프로젝트 개요
+
+`C:\test_agent\insurance_agent`(보험상담 AI 어시스턴트)와
+`C:\test_blockchain-dental`(블록체인 덴탈보험 dApp) 두 개의 별도 프로젝트를 결합한
+캡스톤 프로젝트. 목표: AI 챗봇에서 "블록체인 덴탈보험"을 추천받고 가입 버튼을
+누르면, 별도 폴더의 Hardhat/Node 블록체인 dApp이 자동으로 기동되어 실제 가입까지
+이어지도록 연동하는 것.
+
+- GitHub: https://github.com/leeyonsei78/capstone_project (public repo, owner: `leeyonsei78`)
+- 새 PC 설치: [SETUP.md](./SETUP.md), 실행/아키텍처 요약: [README.md](./README.md)
+
+## 구조
+
+```
+insurance_agent/        Flask 챗봇 (:5000) — 원본 test_agent/insurance_agent 복사본
+blockchain-dental/       Hardhat + dApp (:8545 노드, :3000 프론트엔드) — 원본 test_blockchain-dental 복사본
+start.bat                루트 실행 진입점 (insurance_agent\run.bat 호출)
+SETUP.md                 새 PC 1회성 설치 가이드 (프로그램, MetaMask 네트워크/계정)
+```
+
+## 통합 메커니즘 (직접 추가한 부분)
+
+- `insurance_agent/blockchain_bridge.py` — `blockchain-dental/run.bat`과 동일한 순서로
+  Hardhat 노드 → 컨트랙트 배포 → 만기환급/오라클/자동납부 서비스 → 프론트엔드 서버를
+  기동하고, 마지막에 Chrome(관리자)/Edge(고객) 두 창을 자동으로 엽니다.
+  포트(8545, 3000)로 idempotent 체크를 하므로 이미 떠 있으면 재사용합니다.
+- `web_app.py`의 `/api/blockchain/dental/enroll`, `/api/blockchain/dental/status` —
+  위 브릿지를 백그라운드 스레드로 실행하고 상태를 폴링하게 해주는 라우트.
+- `web_app.py`의 `addLinksToTables()` (JS) — 상품 비교표 행 텍스트에 "블록체인"이
+  포함되면 일반 보험사 링크 대신 **⛓️ 블록체인 가입 시작 →** 버튼을 렌더링.
+- `dental_005`(라이나생명 블록체인치아보험)는 `data/dental_products.py`의 로컬
+  정적 상품이며, `web_app.py`의 mock `dental` 분기와 `agents/orchestrator.py`의
+  시스템 프롬프트(상담 원칙 7번) 양쪽에서 "블록체인"을 명시하지 않은 일반 덴탈보험
+  질문에도 항상 포함되도록 강제하고 있음.
+
+## 알아두면 좋은 것들
+
+- **`insurance_agent/run.bat`은 반드시 ANSI(CP949) 인코딩으로 저장** — UTF-8로 저장하면
+  한글이 깨짐 (원본 프로젝트의 기존 제약, `insurance_agent/CLAUDE.md`에도 명시됨).
+  루트 `start.bat`/`SETUP.md`는 한글 대신 순수 ASCII 위주로 작성해 이 문제를 회피함.
+- **블록체인 계정**: Hardhat 기본 테스트 계정 사용. Account #0(관리자, Chrome) /
+  Account #1(고객 "김덴탈", Edge). 개인키는 [SETUP.md](./SETUP.md) 4장 참고 —
+  Hardhat이 항상 동일하게 생성하는 공개적으로 알려진 테스트 키라 저장소에 남겨도 안전.
+- **gh CLI 다중 계정 주의**: 이 머신에는 GitHub 계정이 2개 로그인되어 있음
+  (`leeyonsei78` = 이 저장소 소유자, `Sdapaul` = 다른 프로젝트용 기본 계정).
+  `git push` 전에 반드시 `gh auth status`로 활성 계정이 `leeyonsei78`인지 확인할 것
+  (기본값은 `Sdapaul`로 되어 있어서 그대로 두면 push 권한 문제가 생기거나 커밋 작성자가
+  잘못 표기될 수 있음). 필요 시 `gh auth switch --hostname github.com --user leeyonsei78`.
+- **.gitignore로 제외된 것들** (재생성 필요): `insurance_agent/.env`(API 키),
+  `insurance_agent/chroma_db/`, `*.xls`/`*.xlsx`, `blockchain-dental/node_modules/`,
+  `artifacts/`, `cache/`, `frontend/config.json`, `.services_started` 마커.

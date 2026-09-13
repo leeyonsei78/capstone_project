@@ -1540,7 +1540,7 @@ HTML = r"""<!DOCTYPE html>
   <button class="tab-btn active" onclick="switchTab('chat')">💬 보험 상담</button>
   <button class="tab-btn" onclick="switchTab('credit')">💳 신용점수 포트폴리오</button>
   <button class="tab-btn" onclick="switchTab('health')">🏥 건강위험 포트폴리오</button>
-  <button class="tab-btn demo-tab" onclick="switchTab('demo')">🏆 대회 데모</button>
+  <button class="tab-btn demo-tab" onclick="switchTab('demo')">🎬 가상 시나리오</button>
   <button class="tab-btn diobio-tab" onclick="switchTab('diobio')">🌿 DIOBIO 웰니스</button>
 </div>
 
@@ -2209,7 +2209,7 @@ HTML = r"""<!DOCTYPE html>
   </div>
 </div>
 
-<!-- Tab: 대회 데모 ─────────────────────────────────────────── -->
+<!-- Tab: 가상 시나리오 ─────────────────────────────────────────── -->
 <div class="tab-panel" id="tab-demo">
   <div class="demo-panel">
 
