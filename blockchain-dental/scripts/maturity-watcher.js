@@ -57,10 +57,14 @@ function fmtAmount(raw, decimals) {
 }
 
 // ── 컨트랙트별 워처 ───────────────────────────────────────────────
-async function watchContract(contract, decimals, currency, processed, reminded) {
+async function watchContract(contract, decimals, currency, processed, reminded, provider) {
   try {
     const policyIds = await contract.getAllPolicyIds();
     if (policyIds.length === 0) return;
+
+    // 블록체인 시간 기준 — Date.now()(실제 시간)를 쓰면 Hardhat 블록 시간이
+    // 뒤처져 있을 때 알림/카운트다운이 실제 만기 판정(block.timestamp 기준)과 어긋남
+    const blockTs = Number((await provider.getBlock("latest")).timestamp);
 
     for (const id of policyIds) {
       const policyId = Number(id);
@@ -73,7 +77,7 @@ async function watchContract(contract, decimals, currency, processed, reminded) 
         if (!reminded.has(key)) {
           const policy = await contract.getPolicy(policyId).catch(() => null);
           if (policy && policy.active && !policy.maturityPaid) {
-            const secLeft = Number(policy.maturityDate) - Math.floor(Date.now() / 1000);
+            const secLeft = Number(policy.maturityDate) - blockTs;
             if (secLeft > 0 && secLeft <= MATURITY_REMINDER_SEC) {
               reminded.add(key);
               const maturityDate = new Date(Number(policy.maturityDate) * 1000).toLocaleString("ko-KR");
@@ -120,15 +124,16 @@ async function watchContract(contract, decimals, currency, processed, reminded) 
   }
 }
 
-async function printSchedule(contract, decimals, currency) {
+async function printSchedule(contract, decimals, currency, provider) {
   try {
     const ids = await contract.getAllPolicyIds();
     if (ids.length === 0) return;
+    const blockTs = Number((await provider.getBlock("latest")).timestamp);
     console.log(`\n[ 만기 일정 — ${currency} ]`);
     for (const id of ids) {
       const p   = await contract.getPolicy(id);
       const mat = new Date(Number(p.maturityDate) * 1000).toLocaleString("ko-KR");
-      const remaining = Number(p.maturityDate) - Math.floor(Date.now() / 1000);
+      const remaining = Number(p.maturityDate) - blockTs;
       const status = p.maturityPaid ? "✅ 지급완료" : (remaining <= 0 ? "⏰ 만기" : `⏳ ${remaining}초 후`);
       log(`증권 #${id}: ${p.patientName} | 만기: ${mat} | ${status}`);
     }
@@ -166,13 +171,13 @@ async function main() {
   const reminded  = new Set();
 
   async function checkAll() {
-    if (usdcContract) await watchContract(usdcContract, 6, "USDC", processed, reminded);
-    if (krwContract)  await watchContract(krwContract,  0, "KRW",  processed, reminded);
+    if (usdcContract) await watchContract(usdcContract, 6, "USDC", processed, reminded, provider);
+    if (krwContract)  await watchContract(krwContract,  0, "KRW",  processed, reminded, provider);
   }
 
   // 만기 일정 출력
-  if (usdcContract) await printSchedule(usdcContract, 6, "USDC");
-  if (krwContract)  await printSchedule(krwContract,  0, "KRW");
+  if (usdcContract) await printSchedule(usdcContract, 6, "USDC", provider);
+  if (krwContract)  await printSchedule(krwContract,  0, "KRW",  provider);
 
   // 첫 번째 실행
   await checkAll();

@@ -2020,7 +2020,6 @@ async function refreshMaturity() {
       return;
     }
 
-    const now = Math.floor(Date.now() / 1000);
     const block = await provider.getBlock("latest");
     const blockTs = Number(block.timestamp);
 
@@ -2037,7 +2036,7 @@ async function refreshMaturity() {
       const rate       = Number(p.maturityRefundRate);
       const refundAmt  = (BigInt(p.totalPaid) * BigInt(rate)) / 100n;
       const isMatured  = blockTs >= matDate && p.active && !p.maturityPaid;
-      const remaining  = matDate - now;
+      const remaining  = matDate - blockTs;
 
       let statusBadge;
       if (p.maturityPaid) {
