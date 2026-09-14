@@ -49,6 +49,8 @@ const ABI = [
   "function oracleVerifyAndProcess(uint256 claimId, bool approved, bytes32 dataHash, string hospitalName, string verificationCode) external",
   "function getPolicy(uint256) view returns (tuple(uint256 id, address patient, string patientName, uint256 monthlyPremium, uint256 coverageLimit, uint256 totalPaid, uint256 totalClaimed, uint256 lastPaymentTime, uint256 nextDueTime, bool active, uint256 createdAt, uint256 maturityDate, uint256 maturityRefundRate, bool maturityPaid))",
   "function AUTO_CLAIM_APPROVAL_PERCENT() view returns (uint256)",
+  "function getPatientClaims(address) view returns (uint256[])",
+  "function getPatientPolicies(address) view returns (uint256[])",
   "event ClaimSubmitted(uint256 indexed claimId, uint256 indexed policyId, address indexed patient, uint256 amount, string treatmentCode, uint256 timestamp)",
   "event ClaimOracleVerified(uint256 indexed claimId, bool approved, bytes32 dataHash, string hospitalName, uint256 timestamp)",
 ];
@@ -63,22 +65,62 @@ function fmtAmount(raw, decimals) {
   return "$" + (Number(raw) / 1e6).toFixed(2);
 }
 
+const CLAIM_STATUS_LABEL = ["Pending", "Approved", "Rejected", "Paid"];
+
+// 환자의 과거 청구/증권 이력 요약 (단발성 데이터만 보고는 놓치는 패턴 — 최근 반복 청구,
+// 과거 거절 이력 등 — 을 AI가 참고할 수 있도록 함). 조회 실패해도 검토 자체는 계속 진행.
+async function buildPatientHistorySummary(contract, patientAddress, excludeClaimId, decimals) {
+  try {
+    const [claimIds, policyIds] = await Promise.all([
+      contract.getPatientClaims(patientAddress),
+      contract.getPatientPolicies(patientAddress),
+    ]);
+    const otherClaimIds = claimIds.map(Number).filter((id) => id !== excludeClaimId);
+
+    if (otherClaimIds.length === 0) {
+      return `이 환자의 과거 청구 이력 없음 (이번이 첫 청구, 보유 증권 ${policyIds.length}건).`;
+    }
+
+    const counts = { Pending: 0, Approved: 0, Rejected: 0, Paid: 0 };
+    let totalPaid = 0n;
+    for (const id of otherClaimIds) {
+      try {
+        const c = await contract.getClaim(id);
+        const label = CLAIM_STATUS_LABEL[Number(c.status)];
+        counts[label]++;
+        if (label === "Paid") totalPaid += BigInt(c.amount);
+      } catch (_) { /* 개별 조회 실패는 무시하고 계속 */ }
+    }
+
+    return (
+      `이 환자의 과거 청구 이력: 총 ${otherClaimIds.length}건 ` +
+      `(지급완료 ${counts.Paid} / 승인 ${counts.Approved} / 거절 ${counts.Rejected} / 대기중 ${counts.Pending}), ` +
+      `누적 지급액 ${fmtAmount(totalPaid, decimals)}, 보유 증권 ${policyIds.length}건.`
+    );
+  } catch (e) {
+    warn(`  환자 이력 조회 실패: ${e.message}`);
+    return "환자 이력 조회 실패 (이력 정보 없이 검토 진행).";
+  }
+}
+
 // ── AI 사전검토 (보장한도 20% 초과 — 항상 관리자 수동 심사 대상) ──────
 // ⚠️ 참고 의견만 생성한다. 승인/거절/지급은 절대 하지 않으며,
 //    실제 처리는 관리자가 UI에서 approveClaim/rejectClaim/payClaim으로 직접 수행한다.
-async function reviewOversizedClaimWithAI(claimId, claim, policy, decimals, currency) {
+async function reviewOversizedClaimWithAI(contract, claimId, claim, policy, decimals, currency) {
   if (!hasApiKey()) {
     warn(`  OPENAI_API_KEY 미설정 — 청구 #${claimId} AI 사전검토 건너뜀`);
     return;
   }
 
   const ratioPct = (Number(claim.amount) / Number(policy.coverageLimit)) * 100;
+  const historySummary = await buildPatientHistorySummary(contract, claim.patient, claimId, decimals);
 
   const systemPrompt =
     "당신은 치과보험 청구 심사를 보조하는 AI 검토관입니다. " +
     "치료 코드, 청구 금액, 환자가 작성한 치료 상세 설명을 보고 서로 앞뒤가 맞는지, " +
-    "의심스러운 정황(설명과 무관한 치료 코드, 비정상적으로 높은 금액, 모호하거나 상투적인 설명 등)이 " +
-    "있는지 짧게 검토하세요. 당신의 의견은 참고용이며 최종 승인/거절은 관리자가 직접 판단합니다. " +
+    "의심스러운 정황(설명과 무관한 치료 코드, 비정상적으로 높은 금액, 모호하거나 상투적인 설명, " +
+    "짧은 기간 내 반복 청구, 과거 거절 이력 등)이 있는지 짧게 검토하세요. " +
+    "당신의 의견은 참고용이며 최종 승인/거절은 관리자가 직접 판단합니다. " +
     "한국어로 3문장 이내, '검토 의견: (정상/주의 필요) - 이유' 형식으로만 답하세요.";
 
   const userPrompt =
@@ -87,8 +129,9 @@ async function reviewOversizedClaimWithAI(claimId, claim, policy, decimals, curr
     `청구 금액: ${fmtAmount(claim.amount, decimals)} ` +
     `(보장한도 ${fmtAmount(policy.coverageLimit, decimals)}의 ${ratioPct.toFixed(1)}%)\n` +
     `환자 작성 치료 상세 설명: "${claim.description || "(설명 없음)"}"\n` +
+    `${historySummary}\n` +
     `이 청구는 보장한도의 20%를 초과해 오라클 자동처리 대상이 아니며 관리자 수동 심사가 필요합니다. ` +
-    `위 정보를 근거로 검토 의견을 주세요.`;
+    `위 정보(과거 이력 포함)를 근거로 검토 의견을 주세요.`;
 
   const opinion = await reviewWithAI(systemPrompt, userPrompt, 300);
   if (!opinion) return;
@@ -130,7 +173,7 @@ async function processClaimWithOracle(contract, claimId, decimals, currency) {
   const autoPercent = await contract.AUTO_CLAIM_APPROVAL_PERCENT().catch(() => 20n);
   if (policy && claim.amount > (policy.coverageLimit * autoPercent) / 100n) {
     log(`  └─ 청구 #${claimId} — 보장한도의 ${autoPercent}% 초과, 오라클 처리 불가 → 관리자 수동 심사 대기 (스킵)`);
-    await reviewOversizedClaimWithAI(claimId, claim, policy, decimals, currency);
+    await reviewOversizedClaimWithAI(contract, claimId, claim, policy, decimals, currency);
     return;
   }
 

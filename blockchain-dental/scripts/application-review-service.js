@@ -42,6 +42,7 @@ const CONFIG_PATH = path.join(__dirname, "..", "frontend", "config.json");
 const ABI = [
   "function getAllApplicationIds() view returns (uint256[])",
   "function getApplication(uint256) view returns (tuple(uint256 id, address applicant, string applicantName, uint256 age, uint256 monthlyPremium, uint256 coverageLimit, uint256 maturityDays, uint256 maturityRefundRate, uint8 status, uint256 submittedAt, uint256 processedAt, string rejectReason, uint256 policyId, uint8 riskScore))",
+  "function getApplicantApplications(address) view returns (uint256[])",
   "event ApplicationSubmitted(uint256 indexed appId, address indexed applicant, string applicantName, uint256 riskScore, uint256 timestamp)",
 ];
 
@@ -56,18 +57,49 @@ function fmtAmount(raw, decimals) {
 
 const STATUS_LABEL = ["Pending", "Approved", "Rejected"];
 
+// 청약자의 과거 청약 이력 요약 (반복 거절 후 재신청 등의 패턴을 AI가 참고할 수 있도록 함).
+// 조회 실패해도 검토 자체는 계속 진행.
+async function buildApplicantHistorySummary(contract, applicantAddress, excludeAppId) {
+  try {
+    const ids = await contract.getApplicantApplications(applicantAddress);
+    const otherIds = ids.map(Number).filter((id) => id !== excludeAppId);
+
+    if (otherIds.length === 0) {
+      return "이 청약자의 과거 청약 이력 없음 (이번이 첫 신청).";
+    }
+
+    const counts = { Pending: 0, Approved: 0, Rejected: 0 };
+    for (const id of otherIds) {
+      try {
+        const a = await contract.getApplication(id);
+        counts[STATUS_LABEL[Number(a.status)]]++;
+      } catch (_) { /* 개별 조회 실패는 무시하고 계속 */ }
+    }
+
+    return (
+      `이 청약자의 과거 청약 이력: 총 ${otherIds.length}건 ` +
+      `(승인 ${counts.Approved} / 거절 ${counts.Rejected} / 대기중 ${counts.Pending}).`
+    );
+  } catch (e) {
+    warn(`  청약자 이력 조회 실패: ${e.message}`);
+    return "청약자 이력 조회 실패 (이력 정보 없이 검토 진행).";
+  }
+}
+
 // ── AI 사전검토 (Pending 청약만 대상) ────────────────────────────
-async function reviewApplicationWithAI(app, decimals, currency) {
+async function reviewApplicationWithAI(contract, app, decimals, currency) {
   if (!hasApiKey()) {
     warn(`OPENAI_API_KEY 미설정 — 청약 #${app.id} AI 검토 건너뜀`);
     return;
   }
 
   const ratio = Number(app.coverageLimit) / Number(app.monthlyPremium);
+  const historySummary = await buildApplicantHistorySummary(contract, app.applicant, Number(app.id));
 
   const systemPrompt =
     "당신은 치과보험 청약 심사를 보조하는 AI 언더라이터입니다. " +
-    "청약자 정보를 보고 승인/거절 권고와 그 이유를 짧게 제시하세요. " +
+    "청약자 정보와 과거 청약 이력(반복 거절 후 재신청 등의 패턴 포함)을 보고 " +
+    "승인/거절 권고와 그 이유를 짧게 제시하세요. " +
     "당신의 의견은 참고용이며 최종 승인/거절은 관리자가 반드시 UI에서 직접 처리합니다. " +
     "한국어로 3문장 이내, '권고: (승인/거절/보류) - 이유' 형식으로만 답하세요.";
 
@@ -78,8 +110,9 @@ async function reviewApplicationWithAI(app, decimals, currency) {
     `보장 한도: ${fmtAmount(app.coverageLimit, decimals)} (월보험료 대비 ${ratio.toFixed(1)}배)\n` +
     `만기: ${app.maturityDays}일 / 만기환급율: ${app.maturityRefundRate}%\n` +
     `컨트랙트 자동심사 위험점수: ${app.riskScore}/100 (참고용, 승인 여부에 직접 영향 없음)\n` +
+    `${historySummary}\n` +
     `이 청약은 보장한도/월보험료 비율이 자동승인(10배)과 자동거절(100배) 구간 사이라 ` +
-    `관리자 수동 심사 대기 중입니다. 승인 여부에 대한 의견을 주세요.`;
+    `관리자 수동 심사 대기 중입니다. 위 정보(과거 이력 포함)를 근거로 승인 여부에 대한 의견을 주세요.`;
 
   const opinion = await reviewWithAI(systemPrompt, userPrompt, 300);
   if (!opinion) return;
@@ -103,7 +136,7 @@ async function scanPendingApplications(contract, decimals, currency) {
       const app = await contract.getApplication(id);
       if (Number(app.status) === 0) { // Pending
         count++;
-        await reviewApplicationWithAI(app, decimals, currency);
+        await reviewApplicationWithAI(contract, app, decimals, currency);
       }
     }
     log(`🔍 [${currency}] 스캔 완료 — Pending 청약 ${count}건 검토`);
@@ -124,7 +157,7 @@ function attachListener(contract, decimals, currency) {
     }
     if (Number(app.status) === 0) {
       log(`\n📥 [${currency}] ApplicationSubmitted — 청약 #${appId} (Pending, 관리자 심사 필요)`);
-      await reviewApplicationWithAI(app, decimals, currency);
+      await reviewApplicationWithAI(contract, app, decimals, currency);
     } else {
       log(`📥 [${currency}] ApplicationSubmitted — 청약 #${appId} (자동 ${STATUS_LABEL[Number(app.status)]}됨, AI 검토 불필요)`);
     }
