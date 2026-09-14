@@ -889,6 +889,7 @@ function updateCurrencyLabels() {
     isKrw
       ? `승인 시 보험증권이 자동 생성됩니다. 피보험자에게 KRW가 사전에 있어야 보험료 납입이 가능합니다.`
       : `승인 시 보험증권이 자동 생성됩니다. 피보험자에게 USDC가 사전에 있어야 보험료 납입이 가능합니다.`;
+  if (typeof recalcApplicationPremium === "function") recalcApplicationPremium();
 
   // ── 약관대출 탭 ───────────────────────────────────────────
   if (el("loanAmountLabel")) el("loanAmountLabel").textContent =
@@ -2406,6 +2407,99 @@ async function disableAutoPay() {
 const APP_STATUS       = ["대기중", "승인됨", "거절됨"];
 const APP_STATUS_CLASS = ["badge-pending", "badge-approved", "badge-rejected"];
 
+// ── 담보 선택 & 보험료 자동 산정 ──────────────────────────────
+// 라이나생명 "THE 치아보험" 실제 담보 구성(임플란트/크라운/충전/브릿지/틀니/
+// 신경치료/스케일링)을 참고한 원화(KRW) 기준 요율표.
+// ⚠️ 공식 요율표를 그대로 옮긴 것이 아니라 담보 구조를 참고해 만든 추정치이며,
+//    실제 라이나생명 보험료와 다를 수 있음 (데모/교육용).
+const DENTAL_COVERAGE_OPTIONS = [
+  { id: "implant",   label: "임플란트",   desc: "1개당 보장 (대기기간 90일)",             coverageKrw: 1000000, premiumKrw: 8000 },
+  { id: "crown",     label: "크라운",     desc: "심미/보철 크라운 1개당",                  coverageKrw: 400000,  premiumKrw: 4000 },
+  { id: "filling",   label: "충전치료",   desc: "인레이·충전(금/세라믹 기준) 1개당",       coverageKrw: 150000,  premiumKrw: 2000 },
+  { id: "bridge",    label: "브릿지",     desc: "고정성 가공의치 (대기기간 90일)",         coverageKrw: 600000,  premiumKrw: 5000 },
+  { id: "denture",   label: "틀니",       desc: "가철성 의치 (대기기간 90일)",             coverageKrw: 1200000, premiumKrw: 6000 },
+  { id: "rootcanal", label: "신경치료",   desc: "근관치료 1개당",                          coverageKrw: 150000,  premiumKrw: 2500 },
+  { id: "scaling",   label: "스케일링",   desc: "건강보험 적용 시 연 1회 한도",            coverageKrw: 100000,  premiumKrw: 1500 },
+];
+
+// mock-provider.js(오라클 청구 검증)와 동일한 고정 환율 — 데모 전반에서 일관되게 사용
+const KRW_PER_USD = 1400;
+
+// 라이나 상품 구조(연령대별 위험도 반영)를 참고한 나이 배율 — 실제 요율표가 아닌 참고 추정치
+function ageMultiplier(age) {
+  const a = Number(age) || 0;
+  if (a < 30) return 0.7;
+  if (a < 40) return 0.85;
+  if (a < 50) return 1.0;
+  if (a < 60) return 1.4;
+  if (a < 70) return 1.9;
+  return 2.5;
+}
+
+// 원화(KRW) 금액을 현재 통화 모드의 최소단위 BigInt로 변환
+function convertKrw(krwAmount) {
+  if (currencyMode === 'KRW') return BigInt(Math.round(krwAmount));
+  const usd = krwAmount / KRW_PER_USD;
+  return ethers.parseUnits(usd.toFixed(6), stableDecimals());
+}
+
+// BigInt(최소단위)를 입력창에 넣기 좋은 문자열로 변환 (KRW=정수, USDC=소수 2자리)
+function rawToInputValue(raw) {
+  const str = ethers.formatUnits(raw, stableDecimals());
+  return stableDecimals() === 0 ? str : parseFloat(str).toFixed(2);
+}
+
+function renderCoverageOptions() {
+  const container = el("coverageOptionsList");
+  if (!container) return;
+  container.innerHTML = DENTAL_COVERAGE_OPTIONS.map(opt => `
+    <label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;cursor:pointer">
+      <input type="checkbox" class="coverage-option-checkbox" data-id="${opt.id}" onchange="recalcApplicationPremium()">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600">${opt.label}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${opt.desc}</div>
+      </div>
+      <div style="text-align:right;font-size:12px;color:var(--text-secondary)" class="coverage-option-price" data-id="${opt.id}">-</div>
+    </label>
+  `).join("");
+  updateCoverageOptionPrices();
+}
+
+function updateCoverageOptionPrices() {
+  DENTAL_COVERAGE_OPTIONS.forEach(opt => {
+    const priceEl = document.querySelector(`.coverage-option-price[data-id="${opt.id}"]`);
+    if (!priceEl) return;
+    priceEl.textContent = `보장 ${fmtUsdc(convertKrw(opt.coverageKrw))}`;
+  });
+}
+
+function recalcApplicationPremium() {
+  const selectedIds = Array.from(document.querySelectorAll(".coverage-option-checkbox:checked"))
+    .map(cb => cb.dataset.id);
+  const selected = DENTAL_COVERAGE_OPTIONS.filter(opt => selectedIds.includes(opt.id));
+
+  const mult = ageMultiplier(el("appAge")?.value);
+  const totalCoverageKrw = selected.reduce((sum, opt) => sum + opt.coverageKrw, 0);
+  const totalPremiumKrw  = Math.round(selected.reduce((sum, opt) => sum + opt.premiumKrw, 0) * mult);
+
+  const coverageRaw = convertKrw(totalCoverageKrw);
+  const premiumRaw  = convertKrw(totalPremiumKrw);
+
+  if (el("appCoverage")) el("appCoverage").value = rawToInputValue(coverageRaw);
+  if (el("appPremium"))  el("appPremium").value  = rawToInputValue(premiumRaw);
+
+  if (el("coverageSummaryCoverage")) {
+    el("coverageSummaryCoverage").textContent = selected.length ? fmtUsdc(coverageRaw) : "-";
+  }
+  if (el("coverageSummaryPremium")) {
+    el("coverageSummaryPremium").textContent = selected.length
+      ? `${fmtUsdc(premiumRaw)} (원화 환산 전 ${totalPremiumKrw.toLocaleString("ko-KR")}원 기준)`
+      : "-";
+  }
+
+  updateCoverageOptionPrices();
+}
+
 async function submitApplication() {
   addLog("step", "[청약 신청] 시작");
   if (!insSign) { showToast("컨트랙트를 먼저 연결하세요.", "warning"); return; }
@@ -2419,11 +2513,18 @@ async function submitApplication() {
 
   if (!name)        { showToast("청약자 이름을 입력하세요.", "warning"); return; }
   if (!age || age < 1) { showToast("나이를 입력하세요.", "warning"); return; }
-  if (premium <= 0n){ showToast("월 보험료를 입력하세요.", "warning"); return; }
-  if (coverage <= 0n){ showToast("보장 한도를 입력하세요.", "warning"); return; }
+  if (premium <= 0n || coverage <= 0n) {
+    showToast("담보를 최소 1개 이상 선택하세요.", "warning");
+    return;
+  }
+
+  const selectedLabels = DENTAL_COVERAGE_OPTIONS
+    .filter(opt => document.querySelector(`.coverage-option-checkbox[data-id="${opt.id}"]:checked`))
+    .map(opt => opt.label);
 
   addLog("info", "청약 입력값",
-    `이름: ${name} / 나이: ${age}세\n월보험료: ${fmtUsdc(premium)} / 보장한도: ${fmtUsdc(coverage)}\n기간: ${matDays}일 / 환급율: ${refundRate}%`);
+    `이름: ${name} / 나이: ${age}세\n선택 담보: ${selectedLabels.join(", ") || "-"}\n` +
+    `월보험료: ${fmtUsdc(premium)} / 보장한도: ${fmtUsdc(coverage)}\n기간: ${matDays}일 / 환급율: ${refundRate}%`);
 
   await sendTx(
     async () => insSign.submitApplication(name, age, premium, coverage, matDays, refundRate),
@@ -2951,6 +3052,7 @@ window.addEventListener("load", async () => {
   addLog("info", "MetaMask 감지 확인",
     `window.ethereum 존재: ${!!window.ethereum}\nisMetaMask: ${window.ethereum?.isMetaMask || false}`);
   showTab("faucet");
+  renderCoverageOptions();
   updateCurrencyLabels();
   await tryLoadConfig();
 });
