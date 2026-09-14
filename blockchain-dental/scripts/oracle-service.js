@@ -9,14 +9,14 @@
  *  2. 병원 데이터 제공자(HospitalProvider)로 진료내역 검증
  *  3. oracleVerifyAndProcess() 컨트랙트 호출 → 자동 승인/거절 + 지급
  *  4. 보장한도 20% 초과로 오라클이 처리할 수 없는(=항상 관리자 수동 심사) 청구는
- *     Claude로 AI 사전검토 의견을 생성해 Slack으로 전송 (참고용, 승인/거절/지급은 하지 않음)
+ *     GPT-4o로 AI 사전검토 의견을 생성해 Slack으로 전송 (참고용, 승인/거절/지급은 하지 않음)
  *
  * 제공자 전환 방법 (.env):
  *  HOSPITAL_PROVIDER=mock  (기본, 테스트용)
  *  HOSPITAL_PROVIDER=hira  (실제 HIRA API)
  *
  * AI 사전검토 활성화 (.env, 선택):
- *  ANTHROPIC_API_KEY=sk-ant-...  (없으면 AI 검토 없이 기존 동작만 수행)
+ *  OPENAI_API_KEY=sk-...  (insurance_agent 챗봇과 동일한 키 재사용 가능. 없으면 AI 검토 없이 기존 동작만 수행)
  *  SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
  */
 
@@ -26,7 +26,7 @@ const fs         = require("fs");
 const path       = require("path");
 
 const hospitalProvider = require("./hospital-provider/index");
-const { reviewWithClaude, hasApiKey } = require("./lib/claude-client");
+const { reviewWithAI, hasApiKey } = require("./lib/openai-client");
 const { postToSlack } = require("./lib/slack");
 
 // ethers v6 이벤트 필터 폴링(FilterIdEventSubscriber)이 드물게 내부 오류를 던져
@@ -68,7 +68,7 @@ function fmtAmount(raw, decimals) {
 //    실제 처리는 관리자가 UI에서 approveClaim/rejectClaim/payClaim으로 직접 수행한다.
 async function reviewOversizedClaimWithAI(claimId, claim, policy, decimals, currency) {
   if (!hasApiKey()) {
-    warn(`  ANTHROPIC_API_KEY 미설정 — 청구 #${claimId} AI 사전검토 건너뜀`);
+    warn(`  OPENAI_API_KEY 미설정 — 청구 #${claimId} AI 사전검토 건너뜀`);
     return;
   }
 
@@ -90,7 +90,7 @@ async function reviewOversizedClaimWithAI(claimId, claim, policy, decimals, curr
     `이 청구는 보장한도의 20%를 초과해 오라클 자동처리 대상이 아니며 관리자 수동 심사가 필요합니다. ` +
     `위 정보를 근거로 검토 의견을 주세요.`;
 
-  const opinion = await reviewWithClaude(systemPrompt, userPrompt, 300);
+  const opinion = await reviewWithAI(systemPrompt, userPrompt, 300);
   if (!opinion) return;
 
   const text =

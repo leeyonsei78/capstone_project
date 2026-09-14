@@ -19,8 +19,8 @@
     "hardhat": "^2.19.0"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.0",
     "@openzeppelin/contracts": "^5.0.0",
-    "dotenv": "^16.0.0"
+    "dotenv": "^16.0.0",
+    "openai": "^7.15.0"
   }
 }

@@ -112,19 +112,20 @@ node scripts/slack-notifier.js
 
 ## 🤖 AI 사전검토 (선택)
 
-관리자 수동 심사가 필요한 두 지점에 Claude 기반 참고 의견을 붙일 수 있다.
+관리자 수동 심사가 필요한 두 지점에 GPT-4o 기반 참고 의견을 붙일 수 있다
+(insurance_agent 챗봇과 동일한 OpenAI 사용, 같은 API 키 재사용 가능).
 **AI는 절대 승인/거절/지급을 직접 결정하지 않는다** — 항상 참고 의견만 생성해
 Slack으로 보내고, 실제 처리는 기존과 동일하게 관리자가 UI에서 수행한다.
 
 - **청구 심사 보조** (`scripts/oracle-service.js`에 내장) — 보장한도 20% 초과로
   오라클이 자동처리할 수 없는(=항상 관리자 수동 심사) 청구가 들어오면, 치료
-  상세 설명·치료코드·금액을 Claude에 보내 이상 여부 의견을 생성해 Slack으로 전송.
+  상세 설명·치료코드·금액을 GPT-4o에 보내 이상 여부 의견을 생성해 Slack으로 전송.
 - **청약 심사 보조** (`scripts/application-review-service.js`, 신규) — 보장한도/
   월보험료 비율이 10~100배 사이라 자동승인/거절되지 않고 Pending으로 남은 청약에
   대해 승인/거절 권고 의견을 생성해 Slack으로 전송.
 
 ```bash
-# .env에 ANTHROPIC_API_KEY 설정 후 실행 (없으면 AI 검토 없이 대기만 함)
+# .env에 OPENAI_API_KEY 설정 후 실행 (없으면 AI 검토 없이 대기만 함)
 node scripts/application-review-service.js
 ```
 

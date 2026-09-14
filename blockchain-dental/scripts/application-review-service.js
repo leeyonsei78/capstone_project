@@ -7,16 +7,16 @@
  * 동작:
  *  - ApplicationSubmitted 이벤트 감지 (+ 시작 시 기존 Pending 청약 스캔)
  *  - 보장한도/월보험료 비율이 10~100배 사이라 컨트랙트가 자동승인/거절하지 못하고
- *    Pending 상태로 남긴(=관리자 수동 심사 대상) 청약에 한해 Claude로 승인/거절
- *    권고 의견을 생성해 Slack으로 전송한다.
+ *    Pending 상태로 남긴(=관리자 수동 심사 대상) 청약에 한해 GPT-4o로 승인/거절
+ *    권고 의견을 생성해 Slack으로 전송한다. (insurance_agent 챗봇과 동일한 OpenAI 사용)
  *
  * ⚠️ 이 서비스는 어떤 컨트랙트 함수도 호출하지 않는다 (읽기 전용).
  *    실제 승인/거절은 반드시 관리자가 UI에서 approveApplication/rejectApplicationAdmin으로
  *    직접 처리해야 한다 — 여기서 만드는 의견은 참고용 권고일 뿐이다.
  *
  * 환경변수 (.env):
- *  RPC_URL           : JSON-RPC 엔드포인트 (기본: http://127.0.0.1:8545)
- *  ANTHROPIC_API_KEY : Claude API 키 (없으면 AI 검토 없이 대기만 함)
+ *  RPC_URL        : JSON-RPC 엔드포인트 (기본: http://127.0.0.1:8545)
+ *  OPENAI_API_KEY : OpenAI API 키 (insurance_agent/.env와 동일한 키 재사용 가능. 없으면 AI 검토 없이 대기만 함)
  *  SLACK_WEBHOOK_URL : Slack Incoming Webhook URL (없으면 콘솔에만 출력)
  */
 
@@ -25,7 +25,7 @@ const { ethers } = require("ethers");
 const fs         = require("fs");
 const path       = require("path");
 
-const { reviewWithClaude, hasApiKey } = require("./lib/claude-client");
+const { reviewWithAI, hasApiKey } = require("./lib/openai-client");
 const { postToSlack } = require("./lib/slack");
 
 // ethers v6 이벤트 필터 폴링이 드물게 내부 오류를 던져 처리되지 않은 Promise
@@ -59,7 +59,7 @@ const STATUS_LABEL = ["Pending", "Approved", "Rejected"];
 // ── AI 사전검토 (Pending 청약만 대상) ────────────────────────────
 async function reviewApplicationWithAI(app, decimals, currency) {
   if (!hasApiKey()) {
-    warn(`ANTHROPIC_API_KEY 미설정 — 청약 #${app.id} AI 검토 건너뜀`);
+    warn(`OPENAI_API_KEY 미설정 — 청약 #${app.id} AI 검토 건너뜀`);
     return;
   }
 
@@ -81,7 +81,7 @@ async function reviewApplicationWithAI(app, decimals, currency) {
     `이 청약은 보장한도/월보험료 비율이 자동승인(10배)과 자동거절(100배) 구간 사이라 ` +
     `관리자 수동 심사 대기 중입니다. 승인 여부에 대한 의견을 주세요.`;
 
-  const opinion = await reviewWithClaude(systemPrompt, userPrompt, 300);
+  const opinion = await reviewWithAI(systemPrompt, userPrompt, 300);
   if (!opinion) return;
 
   const text =
@@ -145,8 +145,8 @@ async function main() {
   console.log("=".repeat(65));
 
   if (!hasApiKey()) {
-    warn("ANTHROPIC_API_KEY 미설정 — AI 검토 없이 대기만 합니다.");
-    warn(".env에 ANTHROPIC_API_KEY=sk-ant-... 를 추가하세요.");
+    warn("OPENAI_API_KEY 미설정 — AI 검토 없이 대기만 합니다.");
+    warn(".env에 OPENAI_API_KEY=sk-... 를 추가하세요.");
   }
 
   const usdcAddr = config.contracts?.DentalInsurance;
