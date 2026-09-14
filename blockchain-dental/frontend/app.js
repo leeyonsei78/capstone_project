@@ -2825,7 +2825,7 @@ async function refreshLoanPolicies() {
       // 관리자: 전체 증권 현황 조회 / 일반 계정: 본인 증권만
       const tableIds = isOwner ? await insCtx.getAllPolicyIds() : ids;
       if (tableIds.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" class="text-center" style="color:var(--text-muted);padding:20px">보험증권이 없습니다</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center" style="color:var(--text-muted);padding:20px">보험증권이 없습니다</td></tr>`;
         return;
       }
       const rows = await Promise.all(tableIds.map(async id => {
@@ -2837,11 +2837,15 @@ async function refreshLoanPolicies() {
         const loanBadge = loan.active
           ? `<span class="badge badge-pending">대출중</span>`
           : `<span class="badge" style="background:rgba(139,148,158,0.15);color:var(--text-muted)">없음</span>`;
+        const loanAmountText = loan.active
+          ? `<span style="color:var(--accent-yellow)">${fmtUsdc(loan.loanAmount)}</span>`
+          : `<span style="color:var(--text-muted)">-</span>`;
         return `<tr>
           <td><strong>#${id}</strong></td>
           <td>${policy.patientName}</td>
           <td class="text-right">${fmtUsdc(policy.totalPaid)}</td>
           <td class="text-right" style="color:var(--accent-green)">${fmtUsdc(maxLoan)}</td>
+          <td class="text-right">${loanAmountText}</td>
           <td>${loanBadge}</td>
         </tr>`;
       }));
