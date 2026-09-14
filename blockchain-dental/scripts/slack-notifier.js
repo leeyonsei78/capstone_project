@@ -25,6 +25,8 @@ const { ethers } = require("ethers");
 const fs         = require("fs");
 const path       = require("path");
 
+const { postToSlack: sendSlackWebhook, SLACK_WEBHOOK_URL } = require("./lib/slack");
+
 // ethers v6 이벤트 필터 폴링이 드물게 내부 오류를 던져 처리되지 않은 Promise
 // 거부로 전체 프로세스가 종료되는 것을 방지 (알림 서비스는 계속 실행돼야 함)
 process.on("unhandledRejection", (reason) => {
@@ -33,7 +35,6 @@ process.on("unhandledRejection", (reason) => {
 
 // ── 설정 ──────────────────────────────────────────────────────────
 const RPC_URL          = process.env.RPC_URL          || "http://127.0.0.1:8545";
-const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || "";
 const CONFIG_PATH      = path.join(__dirname, "..", "frontend", "config.json");
 
 // ── ABI (도메인 이벤트만 등록 — Transfer/Approval 등 잡음성 이벤트는 제외) ──
@@ -110,17 +111,9 @@ function shortAddr(addr) {
 async function postToSlack(text) {
   log(text.replace(/\n/g, " | "));
   if (!SLACK_WEBHOOK_URL) return;
-  try {
-    const res = await fetch(SLACK_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
-    if (!res.ok) {
-      warn(`Slack 전송 실패 (HTTP ${res.status}): ${await res.text().catch(() => "")}`);
-    }
-  } catch (e) {
-    warn(`Slack 전송 오류: ${e.message}`);
+  const result = await sendSlackWebhook(text);
+  if (!result.sent) {
+    warn(`Slack 전송 실패 (${result.reason}): ${result.detail || ""}`);
   }
 }
 

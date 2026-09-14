@@ -8,10 +8,16 @@
  *  1. ClaimSubmitted 이벤트 감지 (USDC 컨트랙트 + KRW 컨트랙트)
  *  2. 병원 데이터 제공자(HospitalProvider)로 진료내역 검증
  *  3. oracleVerifyAndProcess() 컨트랙트 호출 → 자동 승인/거절 + 지급
+ *  4. 보장한도 20% 초과로 오라클이 처리할 수 없는(=항상 관리자 수동 심사) 청구는
+ *     Claude로 AI 사전검토 의견을 생성해 Slack으로 전송 (참고용, 승인/거절/지급은 하지 않음)
  *
  * 제공자 전환 방법 (.env):
  *  HOSPITAL_PROVIDER=mock  (기본, 테스트용)
  *  HOSPITAL_PROVIDER=hira  (실제 HIRA API)
+ *
+ * AI 사전검토 활성화 (.env, 선택):
+ *  ANTHROPIC_API_KEY=sk-ant-...  (없으면 AI 검토 없이 기존 동작만 수행)
+ *  SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
  */
 
 require("dotenv").config();
@@ -20,6 +26,8 @@ const fs         = require("fs");
 const path       = require("path");
 
 const hospitalProvider = require("./hospital-provider/index");
+const { reviewWithClaude, hasApiKey } = require("./lib/claude-client");
+const { postToSlack } = require("./lib/slack");
 
 // ethers v6 이벤트 필터 폴링(FilterIdEventSubscriber)이 드물게 내부 오류를 던져
 // 처리되지 않은 Promise 거부로 전체 프로세스가 종료되는 것을 방지 (오라클은 계속 실행돼야 함)
@@ -55,6 +63,46 @@ function fmtAmount(raw, decimals) {
   return "$" + (Number(raw) / 1e6).toFixed(2);
 }
 
+// ── AI 사전검토 (보장한도 20% 초과 — 항상 관리자 수동 심사 대상) ──────
+// ⚠️ 참고 의견만 생성한다. 승인/거절/지급은 절대 하지 않으며,
+//    실제 처리는 관리자가 UI에서 approveClaim/rejectClaim/payClaim으로 직접 수행한다.
+async function reviewOversizedClaimWithAI(claimId, claim, policy, decimals, currency) {
+  if (!hasApiKey()) {
+    warn(`  ANTHROPIC_API_KEY 미설정 — 청구 #${claimId} AI 사전검토 건너뜀`);
+    return;
+  }
+
+  const ratioPct = (Number(claim.amount) / Number(policy.coverageLimit)) * 100;
+
+  const systemPrompt =
+    "당신은 치과보험 청구 심사를 보조하는 AI 검토관입니다. " +
+    "치료 코드, 청구 금액, 환자가 작성한 치료 상세 설명을 보고 서로 앞뒤가 맞는지, " +
+    "의심스러운 정황(설명과 무관한 치료 코드, 비정상적으로 높은 금액, 모호하거나 상투적인 설명 등)이 " +
+    "있는지 짧게 검토하세요. 당신의 의견은 참고용이며 최종 승인/거절은 관리자가 직접 판단합니다. " +
+    "한국어로 3문장 이내, '검토 의견: (정상/주의 필요) - 이유' 형식으로만 답하세요.";
+
+  const userPrompt =
+    `청구 ID: ${claimId}\n` +
+    `치료 코드: ${claim.treatmentCode}\n` +
+    `청구 금액: ${fmtAmount(claim.amount, decimals)} ` +
+    `(보장한도 ${fmtAmount(policy.coverageLimit, decimals)}의 ${ratioPct.toFixed(1)}%)\n` +
+    `환자 작성 치료 상세 설명: "${claim.description || "(설명 없음)"}"\n` +
+    `이 청구는 보장한도의 20%를 초과해 오라클 자동처리 대상이 아니며 관리자 수동 심사가 필요합니다. ` +
+    `위 정보를 근거로 검토 의견을 주세요.`;
+
+  const opinion = await reviewWithClaude(systemPrompt, userPrompt, 300);
+  if (!opinion) return;
+
+  const text =
+    `🤖 *[${currency} 오라클] AI 사전검토 — 청구 #${claimId} (관리자 수동 심사 필요)*\n` +
+    `치료코드: ${claim.treatmentCode} | 금액: ${fmtAmount(claim.amount, decimals)} (${ratioPct.toFixed(1)}%)\n` +
+    `설명: "${claim.description || "-"}"\n` +
+    `${opinion}`;
+
+  await postToSlack(text);
+  log(`  🤖 청구 #${claimId} AI 사전검토 완료 → Slack 전송`);
+}
+
 // ── 핵심 로직: 청구 검증 및 처리 ────────────────────────────────
 async function processClaimWithOracle(contract, claimId, decimals, currency) {
   log(`📋 [${currency}] 청구 #${claimId} 검증 시작...`);
@@ -82,6 +130,7 @@ async function processClaimWithOracle(contract, claimId, decimals, currency) {
   const autoPercent = await contract.AUTO_CLAIM_APPROVAL_PERCENT().catch(() => 20n);
   if (policy && claim.amount > (policy.coverageLimit * autoPercent) / 100n) {
     log(`  └─ 청구 #${claimId} — 보장한도의 ${autoPercent}% 초과, 오라클 처리 불가 → 관리자 수동 심사 대기 (스킵)`);
+    await reviewOversizedClaimWithAI(claimId, claim, policy, decimals, currency);
     return;
   }
 

@@ -10,7 +10,8 @@
     "test": "hardhat test",
     "oracle": "node scripts/oracle-service.js",
     "maturity": "node scripts/maturity-watcher.js",
-    "slack": "node scripts/slack-notifier.js"
+    "slack": "node scripts/slack-notifier.js",
+    "applications": "node scripts/application-review-service.js"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^3.1.3",
@@ -18,6 +19,7 @@
     "hardhat": "^2.19.0"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
     "@openzeppelin/contracts": "^5.0.0",
     "dotenv": "^16.0.0"
   }
