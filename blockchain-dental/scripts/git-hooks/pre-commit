@@ -1,0 +1,5 @@
+#!/bin/sh
+# scripts/install-git-hooks.js가 .git/hooks/pre-commit로 자동 복사하는 훅.
+# 스테이징된 변경사항에서 시크릿 패턴을 검사한다 (scripts/check-secrets.js).
+node "$(git rev-parse --show-toplevel)/blockchain-dental/scripts/check-secrets.js"
+exit $?
