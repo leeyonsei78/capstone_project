@@ -148,6 +148,27 @@ node scripts/application-review-service.js
 node scripts/certificate-service.js
 ```
 
+## ⏳ 사전 알림 & 준비금 부족 경고 (선택)
+
+기존 워처/스케줄러가 "일이 이미 벌어진 뒤"에만 반응하던 것을, 일이 벌어지기 전에
+미리 알려주도록 확장했다.
+
+- **납입 기한 임박 알림** (`premium-scheduler.js`) — 납입 기한 3일 전(`REMINDER_SEC`)부터
+  Slack 사전 알림. 기한이 지났는데 자동납부 미설정/잔액 부족으로 수납이 실패하면
+  — 예전엔 콘솔 로그만 남기고 아무도 모르게 방치됐던 부분 — 이것도 Slack으로 알림.
+- **만기 임박 알림** (`maturity-watcher.js`) — 만기 7일 전(`MATURITY_REMINDER_SEC`)부터
+  예상 환급액과 함께 Slack 사전 알림.
+- **준비금 부족 사전 경고** (`scripts/reserve-monitor.js`, 신규) — 청구 지급·만기환급·
+  약관대출 실행은 컨트랙트 내부적으로 잔액 검사를 통과해야 하며, 잔액이 모자라면
+  그 트랜잭션 자체가 실패(revert)한다. 현재 잔액과 "곧 나가야 할 돈"(승인된 미지급
+  청구 + 만기 도달 미지급 증권 예상 환급액 합계)을 주기적으로 비교해, 부족해지는
+  순간과 다시 회복되는 순간에만 Slack 알림(반복 스팸 없음). 컨트랙트 함수를 호출하지
+  않는 읽기 전용 서비스.
+
+```bash
+node scripts/reserve-monitor.js
+```
+
 ## 🌐 Sepolia 테스트넷 배포 (선택)
 
 1. `.env.example` → `.env` 복사 후 키 입력

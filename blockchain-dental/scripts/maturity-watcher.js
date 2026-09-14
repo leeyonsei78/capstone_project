@@ -7,11 +7,21 @@
  * 동작:
  *  - 10초마다 전체 보험증권 만기 여부 확인 (USDC / KRW 컨트랙트 모두)
  *  - 만기 도달 시 관리자 계정으로 processMaturityRefund() 자동 호출
+ *    (지급 완료 알림은 scripts/slack-notifier.js가 MaturityRefundPaid 이벤트로 이미 전송함)
+ *  - 만기가 임박(MATURITY_REMINDER_SEC 이내)했지만 아직 도래하지 않은 증권 →
+ *    Slack 사전 알림 (증권당 1회만, 재알림 스팸 방지)
+ *
+ * 환경변수 (.env):
+ *  MATURITY_REMINDER_SEC : 만기 사전 알림 기준 초 (기본: 604800 = 7일)
+ *  SLACK_WEBHOOK_URL      : 사전 알림용 (없으면 콘솔에만 출력)
  */
 
+require("dotenv").config();
 const { ethers } = require("ethers");
 const fs   = require("fs");
 const path = require("path");
+
+const { postToSlack } = require("./lib/slack");
 
 // ethers v6 이벤트 필터 폴링(FilterIdEventSubscriber)이 드물게 내부 오류를 던져
 // 처리되지 않은 Promise 거부로 전체 프로세스가 종료되는 것을 방지 (워처는 계속 실행돼야 함)
@@ -23,6 +33,7 @@ process.on("unhandledRejection", (reason) => {
 const RPC_URL     = "http://127.0.0.1:8545";
 const ADMIN_KEY   = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const POLL_SEC    = 10;
+const MATURITY_REMINDER_SEC = parseInt(process.env.MATURITY_REMINDER_SEC || "604800", 10); // 기본 7일
 const CONFIG_PATH = path.join(__dirname, "..", "frontend", "config.json");
 
 // ── ABI ───────────────────────────────────────────────────────────
@@ -46,7 +57,7 @@ function fmtAmount(raw, decimals) {
 }
 
 // ── 컨트랙트별 워처 ───────────────────────────────────────────────
-async function watchContract(contract, decimals, currency, processed) {
+async function watchContract(contract, decimals, currency, processed, reminded) {
   try {
     const policyIds = await contract.getAllPolicyIds();
     if (policyIds.length === 0) return;
@@ -57,7 +68,27 @@ async function watchContract(contract, decimals, currency, processed) {
       if (processed.has(key)) continue;
 
       const matured = await contract.isMatured(policyId);
-      if (!matured) continue;
+      if (!matured) {
+        // 아직 만기는 아니지만 임박한 경우 — 사전 알림 1회
+        if (!reminded.has(key)) {
+          const policy = await contract.getPolicy(policyId).catch(() => null);
+          if (policy && policy.active && !policy.maturityPaid) {
+            const secLeft = Number(policy.maturityDate) - Math.floor(Date.now() / 1000);
+            if (secLeft > 0 && secLeft <= MATURITY_REMINDER_SEC) {
+              reminded.add(key);
+              const maturityDate = new Date(Number(policy.maturityDate) * 1000).toLocaleString("ko-KR");
+              const grossRefund = (BigInt(policy.totalPaid) * BigInt(policy.maturityRefundRate)) / 100n;
+              log(`⏳ [${currency}] 증권 #${policyId} [${policy.patientName}] 만기 임박 (${maturityDate})`);
+              await postToSlack(
+                `⏳ *[${currency} 덴탈보험] 만기 임박 — 증권 #${policyId}*\n` +
+                `피보험자: ${policy.patientName} | 만기일: ${maturityDate} | ` +
+                `예상 환급액: ${fmtAmount(grossRefund, decimals)} (환급율 ${policy.maturityRefundRate}%, 약관대출 미차감)`
+              );
+            }
+          }
+        }
+        continue;
+      }
 
       const policy      = await contract.getPolicy(policyId);
       const grossRefund = (BigInt(policy.totalPaid) * BigInt(policy.maturityRefundRate)) / 100n;
@@ -132,10 +163,11 @@ async function main() {
   console.log("-".repeat(60));
 
   const processed = new Set();
+  const reminded  = new Set();
 
   async function checkAll() {
-    if (usdcContract) await watchContract(usdcContract, 6, "USDC", processed);
-    if (krwContract)  await watchContract(krwContract,  0, "KRW",  processed);
+    if (usdcContract) await watchContract(usdcContract, 6, "USDC", processed, reminded);
+    if (krwContract)  await watchContract(krwContract,  0, "KRW",  processed, reminded);
   }
 
   // 만기 일정 출력

@@ -7,17 +7,25 @@
  * 동작:
  *  - 30초마다 전체 보험증권 납입 기한(nextDueTime) 확인 (USDC / KRW 모두)
  *  - 기한 도달 + 피보험자 잔액/allowance 충분 → collectPremium() 자동 호출
+ *  - 기한 도달했는데 자동납부 미설정/잔액 부족으로 수납 실패 → Slack 알림
+ *    (기존엔 콘솔 로그만 남기고 아무도 모르게 방치되던 부분)
+ *  - 납입 기한이 임박(REMINDER_SEC 이내)했지만 아직 도래하지 않은 증권 →
+ *    Slack 사전 알림 (기한당 1회만, 재알림 스팸 방지)
  *
  * 환경변수 (.env):
- *  RPC_URL   : JSON-RPC 엔드포인트 (기본: http://127.0.0.1:8545)
- *  ADMIN_KEY : 관리자 개인키 (기본: Hardhat Account #0)
- *  POLL_SEC  : 폴링 간격 초 (기본: 30)
+ *  RPC_URL       : JSON-RPC 엔드포인트 (기본: http://127.0.0.1:8545)
+ *  ADMIN_KEY     : 관리자 개인키 (기본: Hardhat Account #0)
+ *  POLL_SEC      : 폴링 간격 초 (기본: 30)
+ *  REMINDER_SEC  : 납입 기한 사전 알림 기준 (기본: 259200 = 3일)
+ *  SLACK_WEBHOOK_URL : 실패/사전 알림용 (없으면 콘솔에만 출력)
  */
 
 require("dotenv").config();
 const { ethers } = require("ethers");
 const fs         = require("fs");
 const path       = require("path");
+
+const { postToSlack } = require("./lib/slack");
 
 // ethers v6 이벤트 필터 폴링(FilterIdEventSubscriber)이 드물게 내부 오류를 던져
 // 처리되지 않은 Promise 거부로 전체 프로세스가 종료되는 것을 방지 (스케줄러는 계속 실행돼야 함)
@@ -26,10 +34,16 @@ process.on("unhandledRejection", (reason) => {
 });
 
 // ── 설정 ──────────────────────────────────────────────────────────
-const RPC_URL     = process.env.RPC_URL   || "http://127.0.0.1:8545";
-const ADMIN_KEY   = process.env.ADMIN_KEY || "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-const POLL_SEC    = parseInt(process.env.POLL_SEC || "30", 10);
-const CONFIG_PATH = path.join(__dirname, "..", "frontend", "config.json");
+const RPC_URL      = process.env.RPC_URL     || "http://127.0.0.1:8545";
+const ADMIN_KEY    = process.env.ADMIN_KEY   || "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+const POLL_SEC     = parseInt(process.env.POLL_SEC || "30", 10);
+const REMINDER_SEC = parseInt(process.env.REMINDER_SEC || "259200", 10); // 기본 3일
+const CONFIG_PATH  = path.join(__dirname, "..", "frontend", "config.json");
+
+// 알림 중복 방지 (증권ID+납입기한 단위로 1회만) — 프로세스 재시작 시 초기화됨,
+// 다른 워처들의 in-memory dedup(Set)과 동일한 방식
+const alertedFailure = new Set();
+const remindedUpcoming = new Set();
 
 // ── ABI ───────────────────────────────────────────────────────────
 const INSURANCE_ABI = [
@@ -67,12 +81,28 @@ async function collectDuePremiums(contract, tokenContract, insAddr, decimals, cu
 
   for (const id of policyIds) {
     const policyId = Number(id);
-    let due;
-    try { due = await contract.isDue(policyId); } catch { continue; }
-    if (!due) continue;
 
     let policy;
     try { policy = await contract.getPolicy(policyId); } catch { continue; }
+    if (!policy.active) continue;
+
+    const dueKey = `${policyId}-${policy.nextDueTime}`;
+    const secLeft = Number(policy.nextDueTime) - Math.floor(Date.now() / 1000);
+
+    // 아직 기한 전인데 임박한 경우 — 사전 알림 1회
+    if (secLeft > 0) {
+      if (secLeft <= REMINDER_SEC && !remindedUpcoming.has(dueKey)) {
+        remindedUpcoming.add(dueKey);
+        const dueDate = new Date(Number(policy.nextDueTime) * 1000).toLocaleString("ko-KR");
+        log(`⏳ [${currency}] 증권 #${policyId} [${policy.patientName}] 납입 기한 임박 (${dueDate})`);
+        await postToSlack(
+          `⏳ *[${currency} 덴탈보험] 납입 기한 임박 — 증권 #${policyId}*\n` +
+          `피보험자: ${policy.patientName} | 월 보험료: ${fmtAmount(policy.monthlyPremium, decimals)} | ` +
+          `납입 기한: ${dueDate}`
+        );
+      }
+      continue;
+    }
 
     const amount  = policy.monthlyPremium;
     const patient = policy.patient;
@@ -92,10 +122,27 @@ async function collectDuePremiums(contract, tokenContract, insAddr, decimals, cu
 
     if (allowance < amount) {
       warn(`   ⛔ 자동납부 미설정 — 피보험자가 UI에서 [자동납부 ON] 버튼을 눌러야 합니다.`);
+      if (!alertedFailure.has(dueKey)) {
+        alertedFailure.add(dueKey);
+        await postToSlack(
+          `🚨 *[${currency} 덴탈보험] 자동납부 미설정 — 증권 #${policyId}*\n` +
+          `피보험자: ${policy.patientName} | 월 보험료: ${fmtAmount(amount, decimals)}\n` +
+          `자동납부가 꺼져 있어 납입 기한이 지났는데도 수납되지 않았습니다. 피보험자에게 [자동납부 ON] 안내가 필요합니다.`
+        );
+      }
       continue;
     }
     if (balance < amount) {
       warn(`   ⛔ 잔액 부족 — ${fmtAmount(balance, decimals)} / 필요: ${fmtAmount(amount, decimals)}`);
+      if (!alertedFailure.has(dueKey)) {
+        alertedFailure.add(dueKey);
+        await postToSlack(
+          `🚨 *[${currency} 덴탈보험] 잔액 부족으로 자동납부 실패 — 증권 #${policyId}*\n` +
+          `피보험자: ${policy.patientName} | 필요 금액: ${fmtAmount(amount, decimals)} | ` +
+          `현재 잔액: ${fmtAmount(balance, decimals)}\n` +
+          `잔액 충전 전까지 매 폴링마다 재시도하며, 미납이 계속되면 보험금 청구가 제한될 수 있습니다.`
+        );
+      }
       continue;
     }
 
@@ -106,6 +153,7 @@ async function collectDuePremiums(contract, tokenContract, insAddr, decimals, cu
       const newTotal = BigInt(policy.totalPaid) + BigInt(amount);
       log(`   ✅ 수납 완료! ${fmtAmount(amount, decimals)} → 컨트랙트  TX: ${receipt.hash}`);
       log(`   누적 납입: ${fmtAmount(newTotal, decimals)}`);
+      alertedFailure.delete(dueKey);
     } catch (txErr) {
       err(`   collectPremium(${policyId}) 실패: ${txErr.reason || txErr.message}`);
     }

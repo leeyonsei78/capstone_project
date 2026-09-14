@@ -12,7 +12,8 @@
     "maturity": "node scripts/maturity-watcher.js",
     "slack": "node scripts/slack-notifier.js",
     "applications": "node scripts/application-review-service.js",
-    "certificates": "node scripts/certificate-service.js"
+    "certificates": "node scripts/certificate-service.js",
+    "reserve-monitor": "node scripts/reserve-monitor.js"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^3.1.3",
