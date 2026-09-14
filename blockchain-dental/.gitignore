@@ -20,7 +20,7 @@ frontend/certificates/*.pdf
 run_stdout.log
 run_stderr.log
 
-# blockchain_bridge.py 자동 기동 마커 (로컬 전용)
+# blockchain_bridge.py 구버전 자동 기동 마커 (이제 생성하지 않음 — 남아있으면 삭제)
 .services_started
 
 # OS

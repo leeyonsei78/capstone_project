@@ -30,6 +30,10 @@ SETUP.md                 새 PC 1회성 설치 가이드 (프로그램, MetaMask
   Hardhat 노드 → 컨트랙트 배포 → 만기환급/오라클/자동납부 서비스 → 프론트엔드 서버를
   기동하고, 마지막에 Chrome(관리자)/Edge(고객) 두 창을 자동으로 엽니다.
   포트(8545, 3000)로 idempotent 체크를 하므로 이미 떠 있으면 재사용합니다.
+  백그라운드 서비스 7종은 psutil로 **실제 살아있는 node 프로세스**를 확인해 죽은 것만
+  다시 띄웁니다. 노드를 새로 띄운 경우에는 옛 컨트랙트 주소를 바라보는 이전 세션 서비스를
+  종료하고 7개 전부 재기동합니다. (예전 `.services_started` 마커 파일 방식은 재부팅 후에도
+  마커가 남아 서비스를 영영 skip하는 버그가 있어 제거됨.)
 - `web_app.py`의 `/api/blockchain/dental/enroll`, `/api/blockchain/dental/status` —
   위 브릿지를 백그라운드 스레드로 실행하고 상태를 폴링하게 해주는 라우트.
 - `web_app.py`의 `addLinksToTables()` (JS) — 상품 비교표 행 텍스트에 "블록체인"이
@@ -52,9 +56,18 @@ SETUP.md                 새 PC 1회성 설치 가이드 (프로그램, MetaMask
   `git push` 전에 반드시 `gh auth status`로 활성 계정이 `leeyonsei78`인지 확인할 것
   (기본값은 `Sdapaul`로 되어 있어서 그대로 두면 push 권한 문제가 생기거나 커밋 작성자가
   잘못 표기될 수 있음). 필요 시 `gh auth switch --hostname github.com --user leeyonsei78`.
+  단, Claude Code(bash 도구, Git Bash 환경)에서는 `gh`가 PATH에 없어 이 확인 자체가
+  안 될 수 있음 — 그런 경우 아래 `git push` 항목 참고.
+- **Claude Code에서 `git push`는 bash 도구가 아니라 PowerShell 도구로 실행할 것**:
+  Git Bash(`bash` 도구)에서 `git push`를 실행하면 Git Credential Manager가 tty를
+  못 찾아 `fatal: User cancelled dialog` / `could not read Username`로 실패함.
+  `PowerShell` 도구로 같은 명령을 실행하면 Windows Credential Manager에 저장된
+  자격증명(`cmdkey /list`의 `git:https://github.com`, 계정 `leeyonsei78`)을 그대로
+  사용해 정상 push됨 (stderr로 나오는 `To https://github.com/... main -> main` 같은
+  정상 출력을 PowerShell이 에러처럼 표시할 수 있으니 무시하고 실제 결과로 판단할 것).
 - **.gitignore로 제외된 것들** (재생성 필요): `insurance_agent/.env`(API 키),
   `insurance_agent/chroma_db/`, `*.xls`/`*.xlsx`, `blockchain-dental/node_modules/`,
-  `artifacts/`, `cache/`, `frontend/config.json`, `.services_started` 마커.
+  `artifacts/`, `cache/`, `frontend/config.json`.
 - **2026-09-13 히스토리 재작성됨**: 원본 `insurance_agent` 폴더에서 그대로 복사되어 온
   개인정보 포함 파일 5개(실명+학번 조합 `.html`/`.zip`, 실제 건강검진 `.pdf`,
   `.ipynb`, 경진대회 신청서 `.hwp`)가 최초 커밋에 실려 공개 저장소에 올라간 것을

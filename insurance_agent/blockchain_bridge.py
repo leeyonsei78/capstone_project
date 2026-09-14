@@ -16,10 +16,20 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BLOCKCHAIN_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "blockchain-dental"))
 FRONTEND_DIR = os.path.join(BLOCKCHAIN_DIR, "frontend")
 CONFIG_JSON = os.path.join(FRONTEND_DIR, "config.json")
-SERVICES_MARKER = os.path.join(BLOCKCHAIN_DIR, ".services_started")
 
 HARDHAT_PORT = 8545
 FRONTEND_PORT = 3000
+
+# run.bat의 [4/10]~[10/10]과 동일한 백그라운드 서비스 목록.
+SERVICE_PROCESSES = [
+    ("4-Maturity Watcher", "scripts/maturity-watcher.js"),
+    ("5-Oracle Service", "scripts/oracle-service.js"),
+    ("6-Premium Scheduler", "scripts/premium-scheduler.js"),
+    ("7-Slack Notifier", "scripts/slack-notifier.js"),
+    ("8-Application Review", "scripts/application-review-service.js"),
+    ("9-Certificate Service", "scripts/certificate-service.js"),
+    ("10-Reserve Monitor", "scripts/reserve-monitor.js"),
+]
 
 _lock = threading.Lock()
 _status = {"state": "idle", "message": "", "updated": time.time()}
@@ -57,6 +67,43 @@ def _wait_for_port(port, timeout=45, interval=1.0):
 def _start_console(title, command, cwd):
     """run.bat의 start "제목" cmd /k "명령" 과 동일하게 새 콘솔 창에서 실행."""
     subprocess.Popen('start "{}" cmd /k "{}"'.format(title, command), cwd=cwd, shell=True)
+
+
+def _find_running_services():
+    """blockchain-dental 백그라운드 서비스 중 지금 실제로 살아있는 것을 [(script, proc)]로 반환.
+
+    psutil이 없어 프로세스를 확인할 수 없으면 None(판별 불가)을 반환한다.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return None
+
+    found = []
+    for proc in psutil.process_iter(["name", "cmdline"]):
+        try:
+            if "node" not in (proc.info["name"] or "").lower():
+                continue
+            cmdline = " ".join(proc.info["cmdline"] or "").replace("\\", "/")
+            for _, script in SERVICE_PROCESSES:
+                if script in cmdline:
+                    found.append((script, proc))
+                    break
+        except Exception:
+            # psutil.NoSuchProcess / AccessDenied 등 — 해당 프로세스만 건너뛴다
+            continue
+    return found
+
+
+def _terminate_stale_services(found):
+    """노드를 새로 띄웠을 때 남아있는 이전 세션 서비스(옛 컨트랙트 주소를 바라봄)를 정리."""
+    for _, proc in found:
+        try:
+            if os.path.normcase(proc.cwd()) != os.path.normcase(BLOCKCHAIN_DIR):
+                continue  # 다른 프로젝트의 동명 스크립트 — 건드리지 않는다
+            proc.terminate()
+        except Exception:
+            continue
 
 
 def _blockchain_project_exists():
@@ -100,17 +147,29 @@ def ensure_blockchain_stack():
                 _set_status("error", "컨트랙트 배포에 실패했습니다: " + tail)
                 return False
 
-        if not os.path.exists(SERVICES_MARKER):
-            _set_status("starting_services", "[3/4] 만기환급·오라클·자동납부·슬랙알림·청약심사AI·증권발급·준비금감시 서비스를 시작하는 중입니다...")
-            _start_console("4-Maturity Watcher", "node scripts/maturity-watcher.js", BLOCKCHAIN_DIR)
-            _start_console("5-Oracle Service", "node scripts/oracle-service.js", BLOCKCHAIN_DIR)
-            _start_console("6-Premium Scheduler", "node scripts/premium-scheduler.js", BLOCKCHAIN_DIR)
-            _start_console("7-Slack Notifier", "node scripts/slack-notifier.js", BLOCKCHAIN_DIR)
-            _start_console("8-Application Review", "node scripts/application-review-service.js", BLOCKCHAIN_DIR)
-            _start_console("9-Certificate Service", "node scripts/certificate-service.js", BLOCKCHAIN_DIR)
-            _start_console("10-Reserve Monitor", "node scripts/reserve-monitor.js", BLOCKCHAIN_DIR)
-            with open(SERVICES_MARKER, "w") as f:
-                f.write(str(time.time()))
+        # 서비스는 '실제로 살아있는 node 프로세스'를 기준으로 판단한다.
+        # (예전에는 .services_started 마커 파일을 썼는데, 마커가 디스크에 남아있으면
+        #  재부팅·창 종료로 서비스가 전부 죽은 뒤에도 영원히 skip되는 문제가 있었다.)
+        running = _find_running_services()
+        if running is None:
+            # psutil 미설치 → 확인 불가. 노드를 새로 띄운 경우에만 서비스도 새로 기동.
+            to_start = [] if node_already_running else list(SERVICE_PROCESSES)
+        elif not node_already_running:
+            # 노드를 새로 띄웠다면 이전 세션 서비스는 옛 컨트랙트 주소를 바라보는 좀비 → 정리 후 전부 재기동
+            _terminate_stale_services(running)
+            to_start = list(SERVICE_PROCESSES)
+        else:
+            alive = {script for script, _ in running}
+            to_start = [s for s in SERVICE_PROCESSES if s[1] not in alive]
+
+        if to_start:
+            _set_status(
+                "starting_services",
+                "[3/4] 만기환급·오라클·자동납부·슬랙알림·청약심사AI·증권발급·준비금감시 "
+                "서비스 {}개를 시작하는 중입니다...".format(len(to_start)),
+            )
+            for title, script in to_start:
+                _start_console(title, "node " + script, BLOCKCHAIN_DIR)
 
         if not _is_port_open(FRONTEND_PORT):
             _set_status("starting_frontend", "[4/4] 가입 화면(프론트엔드)을 시작하는 중입니다...")
