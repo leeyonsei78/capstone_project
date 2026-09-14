@@ -68,10 +68,10 @@ const INSURANCE_ABI = [
   "function setMyPremiumInterval(uint256 policyId, uint256 intervalSeconds)",
   "event PremiumAutoCollected(uint256 indexed policyId, address indexed patient, uint256 amount, uint256 totalPaid, uint256 timestamp)",
   // ─── 청약 심사 (Underwriting) ──────────────────────────────
-  "function submitApplication(string applicantName, uint256 age, uint256 monthlyPremium, uint256 coverageLimit, uint256 maturityDays, uint256 maturityRefundRate) returns (uint256)",
+  "function submitApplication(string applicantName, uint256 age, uint256 monthlyPremium, uint256 coverageLimit, uint256 maturityDays, uint256 maturityRefundRate, uint256 coverageCount) returns (uint256)",
   "function approveApplication(uint256 appId) returns (uint256)",
   "function rejectApplication(uint256 appId, string reason)",
-  "function getApplication(uint256 appId) view returns (tuple(uint256 id, address applicant, string applicantName, uint256 age, uint256 monthlyPremium, uint256 coverageLimit, uint256 maturityDays, uint256 maturityRefundRate, uint8 status, uint256 submittedAt, uint256 processedAt, string rejectReason, uint256 policyId, uint8 riskScore))",
+  "function getApplication(uint256 appId) view returns (tuple(uint256 id, address applicant, string applicantName, uint256 age, uint256 monthlyPremium, uint256 coverageLimit, uint256 maturityDays, uint256 maturityRefundRate, uint8 status, uint256 submittedAt, uint256 processedAt, string rejectReason, uint256 policyId, uint8 riskScore, uint256 coverageCount))",
   "function getAllApplicationIds() view returns (uint256[])",
   "function getApplicantApplications(address applicant) view returns (uint256[])",
   "function nextApplicationId() view returns (uint256)",
@@ -2521,13 +2521,14 @@ async function submitApplication() {
   const selectedLabels = DENTAL_COVERAGE_OPTIONS
     .filter(opt => document.querySelector(`.coverage-option-checkbox[data-id="${opt.id}"]:checked`))
     .map(opt => opt.label);
+  const coverageCount = selectedLabels.length;
 
   addLog("info", "청약 입력값",
-    `이름: ${name} / 나이: ${age}세\n선택 담보: ${selectedLabels.join(", ") || "-"}\n` +
+    `이름: ${name} / 나이: ${age}세\n선택 담보(${coverageCount}개): ${selectedLabels.join(", ") || "-"}\n` +
     `월보험료: ${fmtUsdc(premium)} / 보장한도: ${fmtUsdc(coverage)}\n기간: ${matDays}일 / 환급율: ${refundRate}%`);
 
   await sendTx(
-    async () => insSign.submitApplication(name, age, premium, coverage, matDays, refundRate),
+    async () => insSign.submitApplication(name, age, premium, coverage, matDays, refundRate, coverageCount),
     `청약 신청: ${name} (${age}세)`,
     async () => {
       await refreshApplications();
@@ -2579,7 +2580,7 @@ async function refreshApplications() {
     if (!tbody) return;
 
     if (ids.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="12" class="text-center" style="color:var(--text-muted);padding:30px">청약 내역이 없습니다</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="13" class="text-center" style="color:var(--text-muted);padding:30px">청약 내역이 없습니다</td></tr>`;
       return;
     }
 
@@ -2588,7 +2589,7 @@ async function refreshApplications() {
       apps = apps.filter(a => a.applicant.toLowerCase() === userAddr?.toLowerCase());
     }
     if (apps.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="12" class="text-center" style="color:var(--text-muted);padding:30px">청약 내역이 없습니다</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="13" class="text-center" style="color:var(--text-muted);padding:30px">청약 내역이 없습니다</td></tr>`;
       return;
     }
     tbody.innerHTML = apps.slice().reverse().map(a => {
@@ -2602,6 +2603,7 @@ async function refreshApplications() {
         <td class="text-right">${fmtUsdc(a.monthlyPremium)}</td>
         <td class="text-right">${fmtUsdc(a.coverageLimit)}</td>
         <td class="text-center">${a.maturityDays}일</td>
+        <td class="text-center">${a.coverageCount}개</td>
         <td class="text-center"><span style="color:${riskColor};font-weight:600">${a.riskScore}점</span></td>
         <td><span class="badge ${APP_STATUS_CLASS[statusIdx]}">${APP_STATUS[statusIdx]}</span></td>
         <td>${a.policyId > 0n ? `<strong>#${a.policyId}</strong>` : "-"}</td>

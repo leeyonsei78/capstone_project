@@ -101,10 +101,10 @@ async function main() {
   console.log(`  ✅ DentalInsurance(KRW) 배포 완료: ${insuranceKrwAddress}`);
 
   // KRW 심사 룰 조정 (최소 보험료: 10,000 KRW)
-  // setUnderwritingRules(minAge, maxAge, maxCoverageRatio, minMonthlyPremium, maxActivePolicies)
-  tx = await insuranceKrw.setUnderwritingRules(18, 75, 100, 10000, 3);
+  // setUnderwritingRules(minAge, maxAge, maxCoverageCount, autoApproveCoverageCount, minMonthlyPremium, maxActivePolicies)
+  tx = await insuranceKrw.setUnderwritingRules(18, 75, 7, 2, 10000, 3);
   await tx.wait();
-  console.log(`  ✅ KRW 심사 룰 설정 완료: 최소 보험료 10,000원`);
+  console.log(`  ✅ KRW 심사 룰 설정 완료: 최소 보험료 10,000원 (담보 2개 자동승인 / 7개 전체선택 자동거절)`);
 
   // KRW 준비금 입금 (10,000,000원) + 관리자 시작 잔액(1,000,000원 — 다른 계정과 동일)
   const krwReserve = BigInt("10000000"); // 1천만원 (0 decimals)
@@ -153,30 +153,40 @@ async function main() {
 
   if (accounts.length > 4) {
     await usdc.connect(accounts[4]).faucet(ethers.parseUnits("1000", 6));
-    // 비율 500/60 ≈ 8.3배 (10배 이하) → 즉시 자동승인
+    // 담보 2개 선택 → 즉시 자동승인
     tx = await insurance.connect(accounts[4]).submitApplication(
-      "박청약", 35, ethers.parseUnits("60", 6), ethers.parseUnits("500", 6), 365, 70
+      "박청약", 35, ethers.parseUnits("60", 6), ethers.parseUnits("500", 6), 365, 70, 2
     );
     await tx.wait();
-    console.log(`  ✅ 청약 #1: 박청약 (35세) — 비율 8.3배(10배 이하), 즉시 자동승인 및 증권 생성 | ${accounts[4].address}`);
+    console.log(`  ✅ 청약 #1: 박청약 (35세) — 담보 2개 선택, 즉시 자동승인 및 증권 생성 | ${accounts[4].address}`);
   }
 
   if (accounts.length > 5) {
     await usdc.connect(accounts[5]).faucet(ethers.parseUnits("1000", 6));
-    // 비율 2000/40 = 50배 (10~100배 사이) → 관리자 심사 대기
+    // 담보 4개 선택 (1개도 전체도 아님) → 관리자 심사 대기
     tx = await insurance.connect(accounts[5]).submitApplication(
-      "최이십", 20, ethers.parseUnits("40", 6), ethers.parseUnits("2000", 6), 180, 60
+      "최이십", 20, ethers.parseUnits("40", 6), ethers.parseUnits("2000", 6), 180, 60, 4
     );
     await tx.wait();
-    console.log(`  ✅ 청약 #2: 최이십 (20세) — 비율 50배(10~100배), 관리자 심사 대기중 | ${accounts[5].address}`);
+    console.log(`  ✅ 청약 #2: 최이십 (20세) — 담보 4개 선택, 관리자 심사 대기중 | ${accounts[5].address}`);
   }
 
   if (accounts.length > 6) {
     tx = await insurance.connect(accounts[6]).submitApplication(
-      "노거절", 80, ethers.parseUnits("50", 6), ethers.parseUnits("1000", 6), 365, 70
+      "노거절", 80, ethers.parseUnits("50", 6), ethers.parseUnits("1000", 6), 365, 70, 3
     );
     await tx.wait();
     console.log(`  ✅ 청약 #3: 노거절 (80세) — 자동 심사 거절 (연령 초과)`);
+  }
+
+  if (accounts.length > 7) {
+    await usdc.connect(accounts[7]).faucet(ethers.parseUnits("1000", 6));
+    // 담보 7개(전체) 선택 → 즉시 자동거절
+    tx = await insurance.connect(accounts[7]).submitApplication(
+      "전체담보", 30, ethers.parseUnits("80", 6), ethers.parseUnits("2500", 6), 365, 70, 7
+    );
+    await tx.wait();
+    console.log(`  ✅ 청약 #4: 전체담보 (30세) — 담보 7개(전체) 선택, 즉시 자동거절 | ${accounts[7].address}`);
   }
 
   // ── Oracle 설정 (USDC + KRW 양쪽) ───────────────────────────

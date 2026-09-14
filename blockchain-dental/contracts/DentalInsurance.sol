@@ -68,6 +68,7 @@ contract DentalInsurance is Ownable, ReentrancyGuard {
         string  rejectReason;
         uint256 policyId;          // 승인 시 생성된 증권 ID
         uint8   riskScore;         // 자동 심사 위험 점수 (0~100)
+        uint256 coverageCount;     // 선택한 담보 개수 (프론트엔드 담보 선택 UI 기준)
     }
 
     enum ApplicationStatus { Pending, Approved, Rejected }
@@ -111,8 +112,8 @@ contract DentalInsurance is Ownable, ReentrancyGuard {
     // 자동 심사 룰 파라미터 (관리자 변경 가능)
     uint256 public minAge                    = 18;
     uint256 public maxAge                    = 75;
-    uint256 public maxCoverageRatio          = 100;  // 이 배수 초과 시 즉시 거절
-    uint256 public autoApproveRatio          = 10;   // 이 배수 이하면 자동승인, 초과~maxCoverageRatio 이하는 관리자 심사
+    uint256 public maxCoverageCount           = 7;   // 전체 담보 개수 — 모두 선택 시 즉시 거절
+    uint256 public autoApproveCoverageCount   = 2;   // 정확히 이 개수 선택 시 즉시 자동승인, 그 외(1개 또는 3~maxCoverageCount-1개)는 관리자 심사
     uint256 public minMonthlyPremium         = 1_000000; // 최소 1 USDC
     uint256 public maxActivePoliciesPerPerson = 3;
 
@@ -411,10 +412,10 @@ contract DentalInsurance is Ownable, ReentrancyGuard {
 
     /**
      * @dev 보험 청약 신청 (누구나 호출 가능)
-     *      스마트 컨트랙트가 자동으로 심사 룰을 체크한다.
-     *      - 보장한도/월보험료 비율이 autoApproveRatio 이하: 즉시 자동승인 + 증권 생성
-     *      - maxCoverageRatio 초과: 즉시 거절 (트랜잭션은 성공, 청약만 거절 처리)
-     *      - 그 사이 구간: 대기(Pending) → 관리자가 approveApplication/rejectApplication으로 심사
+     *      스마트 컨트랙트가 자동으로 심사 룰을 체크한다. (선택 담보 개수 기준)
+     *      - 담보 coverageCount == autoApproveCoverageCount(기본 2개): 즉시 자동승인 + 증권 생성
+     *      - 담보 coverageCount >= maxCoverageCount(기본 7개, 전체 선택): 즉시 거절 (트랜잭션은 성공, 청약만 거절 처리)
+     *      - 그 외(1개 또는 3~maxCoverageCount-1개): 대기(Pending) → 관리자가 approveApplication/rejectApplication으로 심사
      */
     function submitApplication(
         string  calldata applicantName,
@@ -422,16 +423,18 @@ contract DentalInsurance is Ownable, ReentrancyGuard {
         uint256 monthlyPremium,
         uint256 coverageLimit,
         uint256 maturityDays,
-        uint256 maturityRefundRate
+        uint256 maturityRefundRate,
+        uint256 coverageCount
     ) external returns (uint256) {
         require(bytes(applicantName).length > 0, "Name required");
         require(monthlyPremium > 0, "Premium must be > 0");
         require(coverageLimit > 0, "Coverage must be > 0");
         require(maturityDays > 0, "Maturity days must be > 0");
         require(maturityRefundRate <= 100, "Refund rate must be <= 100");
+        require(coverageCount > 0, "At least 1 coverage required");
 
         (uint8 decision, string memory rejectReason, uint8 score) =
-            _underwrite(msg.sender, age, monthlyPremium, coverageLimit);
+            _underwrite(msg.sender, age, monthlyPremium, coverageLimit, coverageCount);
 
         uint256 appId = nextApplicationId++;
         Application storage app = applications[appId];
@@ -445,6 +448,7 @@ contract DentalInsurance is Ownable, ReentrancyGuard {
         app.maturityRefundRate = maturityRefundRate;
         app.submittedAt        = block.timestamp;
         app.riskScore          = score;
+        app.coverageCount      = coverageCount;
 
         if (decision == 1) {
             _grantApproval(app);
@@ -493,7 +497,8 @@ contract DentalInsurance is Ownable, ReentrancyGuard {
         address applicant,
         uint256 age,
         uint256 monthlyPremium,
-        uint256 coverageLimit
+        uint256 coverageLimit,
+        uint256 coverageCount
     ) internal view returns (uint8 decision, string memory reason, uint8 score) {
         // ① 연령 체크
         if (age < minAge)
@@ -505,16 +510,12 @@ contract DentalInsurance is Ownable, ReentrancyGuard {
         if (monthlyPremium < minMonthlyPremium)
             return (0, unicode"보험료 최소기준 미달", 90);
 
-        // ③ 보장/보험료 비율 체크 (정수 나눗셈 truncation 방지 위해 곱셈으로 비교)
-        if (coverageLimit > monthlyPremium * maxCoverageRatio)
-            return (0, unicode"보장비율 100배 초과", 80);
-
-        // ④ 1인 최대 활성 증권 수 체크
+        // ③ 1인 최대 활성 증권 수 체크
         if (_activePolicyCount(applicant) >= maxActivePoliciesPerPerson)
             return (0, unicode"1인 가입한도 초과", 90);
 
-        // ⑤ 위험 점수 계산
-        uint256 ratio = coverageLimit / monthlyPremium; // 위험점수 계산용
+        // ④ 위험 점수 계산 (참고용 — 더 이상 승인/거절 결정에는 사용하지 않음)
+        uint256 ratio = monthlyPremium > 0 ? coverageLimit / monthlyPremium : 0;
         uint8 riskScore = 0;
         if      (age >= 65) riskScore += 40;
         else if (age >= 50) riskScore += 25;
@@ -525,8 +526,14 @@ contract DentalInsurance is Ownable, ReentrancyGuard {
 
         if (riskScore > 100) riskScore = 100;
 
-        // ⑥ 비율이 autoApproveRatio 이하면 즉시 자동승인, 그 외(~maxCoverageRatio)는 관리자 심사 대기
-        if (coverageLimit <= monthlyPremium * autoApproveRatio) {
+        // ⑤ 선택 담보 개수 기준 자동 심사
+        //    - 전체 담보(maxCoverageCount)를 모두 선택 → 위험도 과다로 판단해 즉시 거절
+        //    - 정확히 autoApproveCoverageCount개 선택 → 즉시 자동승인
+        //    - 그 외(1개 또는 그 사이 구간) → 관리자 심사 대기
+        if (coverageCount >= maxCoverageCount)
+            return (0, unicode"전체 담보 선택은 위험도 과다로 자동 거절", riskScore);
+
+        if (coverageCount == autoApproveCoverageCount) {
             return (1, "", riskScore);
         }
         return (2, "", riskScore);
@@ -562,7 +569,7 @@ contract DentalInsurance is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev 청약 최종 승인 (관리자) — autoApproveRatio~maxCoverageRatio 구간의 대기(Pending) 청약 전용
+     * @dev 청약 최종 승인 (관리자) — 자동승인·자동거절 조건에 해당하지 않아 대기(Pending)된 청약 전용
      */
     function approveApplication(uint256 appId) external onlyOwner returns (uint256) {
         Application storage app = applications[appId];
@@ -591,13 +598,15 @@ contract DentalInsurance is Ownable, ReentrancyGuard {
     function setUnderwritingRules(
         uint256 _minAge,
         uint256 _maxAge,
-        uint256 _maxCoverageRatio,
+        uint256 _maxCoverageCount,
+        uint256 _autoApproveCoverageCount,
         uint256 _minMonthlyPremium,
         uint256 _maxActivePolicies
     ) external onlyOwner {
         minAge                     = _minAge;
         maxAge                     = _maxAge;
-        maxCoverageRatio           = _maxCoverageRatio;
+        maxCoverageCount           = _maxCoverageCount;
+        autoApproveCoverageCount   = _autoApproveCoverageCount;
         minMonthlyPremium          = _minMonthlyPremium;
         maxActivePoliciesPerPerson = _maxActivePolicies;
     }

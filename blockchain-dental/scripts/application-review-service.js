@@ -41,7 +41,7 @@ const CONFIG_PATH = path.join(__dirname, "..", "frontend", "config.json");
 // ── ABI (읽기 전용) ──────────────────────────────────────────────
 const ABI = [
   "function getAllApplicationIds() view returns (uint256[])",
-  "function getApplication(uint256) view returns (tuple(uint256 id, address applicant, string applicantName, uint256 age, uint256 monthlyPremium, uint256 coverageLimit, uint256 maturityDays, uint256 maturityRefundRate, uint8 status, uint256 submittedAt, uint256 processedAt, string rejectReason, uint256 policyId, uint8 riskScore))",
+  "function getApplication(uint256) view returns (tuple(uint256 id, address applicant, string applicantName, uint256 age, uint256 monthlyPremium, uint256 coverageLimit, uint256 maturityDays, uint256 maturityRefundRate, uint8 status, uint256 submittedAt, uint256 processedAt, string rejectReason, uint256 policyId, uint8 riskScore, uint256 coverageCount))",
   "function getApplicantApplications(address) view returns (uint256[])",
   "event ApplicationSubmitted(uint256 indexed appId, address indexed applicant, string applicantName, uint256 riskScore, uint256 timestamp)",
 ];
@@ -107,11 +107,12 @@ async function reviewApplicationWithAI(contract, app, decimals, currency) {
     `청약 ID: ${app.id}\n` +
     `청약자: ${app.applicantName} (${app.age}세)\n` +
     `월 보험료: ${fmtAmount(app.monthlyPremium, decimals)}\n` +
-    `보장 한도: ${fmtAmount(app.coverageLimit, decimals)} (월보험료 대비 ${ratio.toFixed(1)}배)\n` +
+    `보장 한도: ${fmtAmount(app.coverageLimit, decimals)} (월보험료 대비 ${ratio.toFixed(1)}배, 참고용)\n` +
+    `선택 담보 개수: ${app.coverageCount}개\n` +
     `만기: ${app.maturityDays}일 / 만기환급율: ${app.maturityRefundRate}%\n` +
     `컨트랙트 자동심사 위험점수: ${app.riskScore}/100 (참고용, 승인 여부에 직접 영향 없음)\n` +
     `${historySummary}\n` +
-    `이 청약은 보장한도/월보험료 비율이 자동승인(10배)과 자동거절(100배) 구간 사이라 ` +
+    `이 청약은 선택 담보 개수가 자동승인 기준(2개)도, 자동거절 기준(전체 담보 선택)도 아니라 ` +
     `관리자 수동 심사 대기 중입니다. 위 정보(과거 이력 포함)를 근거로 승인 여부에 대한 의견을 주세요.`;
 
   const opinion = await reviewWithAI(systemPrompt, userPrompt, 300);
@@ -120,7 +121,7 @@ async function reviewApplicationWithAI(contract, app, decimals, currency) {
   const text =
     `🤖 *[${currency} 청약심사] AI 사전검토 — 청약 #${app.id} (관리자 수동 심사 필요)*\n` +
     `청약자: ${app.applicantName} (${app.age}세) | 월보험료: ${fmtAmount(app.monthlyPremium, decimals)} | ` +
-    `보장한도: ${fmtAmount(app.coverageLimit, decimals)} (${ratio.toFixed(1)}배) | 위험점수: ${app.riskScore}\n` +
+    `보장한도: ${fmtAmount(app.coverageLimit, decimals)} | 선택 담보: ${app.coverageCount}개 | 위험점수: ${app.riskScore}\n` +
     `${opinion}`;
 
   await postToSlack(text);
