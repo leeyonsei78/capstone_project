@@ -56,6 +56,15 @@ SETUP.md                 새 PC 1회성 설치 가이드 (프로그램, MetaMask
   `git push` 전에 반드시 `gh auth status`로 활성 계정이 `leeyonsei78`인지 확인할 것
   (기본값은 `Sdapaul`로 되어 있어서 그대로 두면 push 권한 문제가 생기거나 커밋 작성자가
   잘못 표기될 수 있음). 필요 시 `gh auth switch --hostname github.com --user leeyonsei78`.
+  단, Claude Code(bash 도구, Git Bash 환경)에서는 `gh`가 PATH에 없어 이 확인 자체가
+  안 될 수 있음 — 그런 경우 아래 `git push` 항목 참고.
+- **Claude Code에서 `git push`는 bash 도구가 아니라 PowerShell 도구로 실행할 것**:
+  Git Bash(`bash` 도구)에서 `git push`를 실행하면 Git Credential Manager가 tty를
+  못 찾아 `fatal: User cancelled dialog` / `could not read Username`로 실패함.
+  `PowerShell` 도구로 같은 명령을 실행하면 Windows Credential Manager에 저장된
+  자격증명(`cmdkey /list`의 `git:https://github.com`, 계정 `leeyonsei78`)을 그대로
+  사용해 정상 push됨 (stderr로 나오는 `To https://github.com/... main -> main` 같은
+  정상 출력을 PowerShell이 에러처럼 표시할 수 있으니 무시하고 실제 결과로 판단할 것).
 - **.gitignore로 제외된 것들** (재생성 필요): `insurance_agent/.env`(API 키),
   `insurance_agent/chroma_db/`, `*.xls`/`*.xlsx`, `blockchain-dental/node_modules/`,
   `artifacts/`, `cache/`, `frontend/config.json`.
