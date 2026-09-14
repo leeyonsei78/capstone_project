@@ -13,6 +13,9 @@ node_modules/
 # 배포 정보 (로컬 전용, 배포 시 자동 생성)
 frontend/config.json
 
+# 자동 발급된 보험증권 PDF (로컬 전용, 런타임에 자동 생성)
+frontend/certificates/*.pdf
+
 # run.bat 실행 로그
 run_stdout.log
 run_stderr.log

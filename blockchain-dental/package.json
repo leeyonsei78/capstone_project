@@ -11,7 +11,8 @@
     "oracle": "node scripts/oracle-service.js",
     "maturity": "node scripts/maturity-watcher.js",
     "slack": "node scripts/slack-notifier.js",
-    "applications": "node scripts/application-review-service.js"
+    "applications": "node scripts/application-review-service.js",
+    "certificates": "node scripts/certificate-service.js"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^3.1.3",
@@ -21,6 +22,7 @@
   "dependencies": {
     "@openzeppelin/contracts": "^5.0.0",
     "dotenv": "^16.0.0",
-    "openai": "^7.15.0"
+    "openai": "^7.15.0",
+    "pdfkit": "^0.20.2"
   }
 }

@@ -129,6 +129,25 @@ Slack으로 보내고, 실제 처리는 기존과 동일하게 관리자가 UI�
 node scripts/application-review-service.js
 ```
 
+## 📄 보험증권 자동 발급 (선택)
+
+`scripts/certificate-service.js`가 `PolicyCreated` 이벤트를 감지해 보험증권 PDF를
+자동 발급한다. 청약 자동승인·관리자 수동승인(`approveApplication`)·관리자 직접
+생성(`createPolicy`) 중 어느 경로로 증권이 만들어졌든 이 이벤트 하나로 통일되므로
+빠짐없이 발급된다.
+
+- 한글 폰트(Noto Sans KR, `assets/fonts/`, OFL 라이선스)를 임베드한 PDF로 증권번호·
+  피보험자·월보험료·보장한도·가입일·만기일·만기환급율을 정리해 발급.
+- GPT-4o로 쉬운말 보장 요약 문구를 생성해 함께 첨부 (선택, 없어도 필수 정보는 그대로 발급).
+- PDF는 `frontend/certificates/`에 저장되며, 이미 떠 있는 frontend 정적 서버
+  (`npx serve -l 3000 .`)가 별도 설정 없이 그대로 서빙한다.
+- Slack에 발급 완료 알림 + AI 요약 + **다운로드 링크**를 전송한다.
+
+```bash
+# .env에 OPENAI_API_KEY, SLACK_WEBHOOK_URL 설정 후 실행 (없어도 PDF 자체는 발급됨)
+node scripts/certificate-service.js
+```
+
 ## 🌐 Sepolia 테스트넷 배포 (선택)
 
 1. `.env.example` → `.env` 복사 후 키 입력
