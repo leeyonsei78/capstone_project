@@ -6,15 +6,19 @@
  *
  * 동작:
  *  - DentalInsurance / ReserveFund / MockUSDC 컨트랙트의 모든 이벤트를
- *    와일드카드("*")로 리스닝 — 프론트엔드 어느 메뉴(탭)에서 호출했든,
- *    스케줄러/오라클/워처가 자동으로 호출했든 상관없이 온체인에 이벤트가
- *    발생하는 모든 행위를 빠짐없이 포착한다.
+ *    SLACK_POLL_SEC 간격으로 폴링(queryFilter)해서 감지 — 프론트엔드 어느
+ *    메뉴(탭)에서 호출했든, 스케줄러/오라클/워처가 자동으로 호출했든
+ *    상관없이 온체인에 이벤트가 발생하는 모든 행위를 빠짐없이 포착한다.
+ *    (다른 워처들과 동일하게 폴링 방식 — ethers v6의 push형 contract.on("*")
+ *    필터는 Hardhat 노드에서 첫 이벤트 이후 필터가 stale해져 이후 이벤트를
+ *    놓치는 경우가 있어 이 방식으로 통일함)
  *  - 이벤트가 감지되면 사람이 읽기 쉬운 한국어 메시지로 가공해
  *    Slack Incoming Webhook으로 전송한다.
  *
  * 환경변수 (.env):
  *  SLACK_WEBHOOK_URL : Slack Incoming Webhook URL (필수 — 없으면 콘솔에만 출력)
  *  RPC_URL           : JSON-RPC 엔드포인트 (기본: http://127.0.0.1:8545)
+ *  SLACK_POLL_SEC    : 폴링 간격 초 (기본: 4 — Hardhat 자동 마이닝 간격과 동일, 다른 워처의 POLL_SEC와 별개)
  *
  * 참고: MockKRW.faucet()은 컨트랙트에 이벤트가 정의되어 있지 않아
  *       이벤트 기반으로는 감지할 수 없다 (KRW 파우셋 알림 제외).
@@ -34,8 +38,9 @@ process.on("unhandledRejection", (reason) => {
 });
 
 // ── 설정 ──────────────────────────────────────────────────────────
-const RPC_URL          = process.env.RPC_URL          || "http://127.0.0.1:8545";
-const CONFIG_PATH      = path.join(__dirname, "..", "frontend", "config.json");
+const RPC_URL      = process.env.RPC_URL || "http://127.0.0.1:8545";
+const POLL_SEC     = parseInt(process.env.SLACK_POLL_SEC || "4", 10);
+const CONFIG_PATH  = path.join(__dirname, "..", "frontend", "config.json");
 
 // ── ABI (도메인 이벤트만 등록 — Transfer/Approval 등 잡음성 이벤트는 제외) ──
 const INSURANCE_ABI = [
@@ -118,7 +123,7 @@ async function postToSlack(text) {
 }
 
 // ── 이벤트 → 메시지 본문 ──────────────────────────────────────────
-function formatEventBody(eventName, args, decimals, currency) {
+function formatEventBody(eventName, args, decimals) {
   const fa = (v) => fmtAmount(v, decimals);
   switch (eventName) {
     case "PolicyCreated":
@@ -170,28 +175,39 @@ function formatEventBody(eventName, args, decimals, currency) {
   }
 }
 
-// ── 컨트랙트에 와일드카드 리스너 연결 ────────────────────────────
-function attachListener(contract, label, decimals, currency) {
-  contract.on("*", async (event) => {
-    try {
-      const eventName = event.eventName || event.fragment?.name;
-      if (!eventName || typeof event.args?.toObject !== "function") return;
-      const args = event.args.toObject();
-      const meta = EVENT_META[eventName] || { icon: "🔔", title: eventName };
-      const body = formatEventBody(eventName, args, decimals, currency);
-      const txHash = event.log?.transactionHash || "-";
+// ── 컨트랙트 이벤트 폴링 (queryFilter) ───────────────────────────
+// 새로 발생한 블록 구간(lastBlock+1 ~ latest)의 전체 이벤트를 한 번에 조회.
+// push형 contract.on("*")과 달리 폴링마다 매번 새로 조회하므로 필터가
+// stale해져 이후 이벤트를 놓치는 문제가 없다.
+async function pollTarget(target, latest) {
+  const { contract, label, decimals } = target;
+  if (target.lastBlock >= latest) return;
+  const fromBlock = target.lastBlock + 1;
+  try {
+    const events = await contract.queryFilter("*", fromBlock, latest);
+    for (const event of events) {
+      try {
+        const eventName = event.eventName || event.fragment?.name;
+        if (!eventName || typeof event.args?.toObject !== "function") continue;
+        const args = event.args.toObject();
+        const meta = EVENT_META[eventName] || { icon: "🔔", title: eventName };
+        const body = formatEventBody(eventName, args, decimals);
+        const txHash = event.transactionHash || "-";
 
-      const text =
-        `${meta.icon} *[${label}] ${meta.title}*\n` +
-        `${body}\n` +
-        `TxHash: \`${txHash}\``;
+        const text =
+          `${meta.icon} *[${label}] ${meta.title}*\n` +
+          `${body}\n` +
+          `TxHash: \`${txHash}\``;
 
-      await postToSlack(text);
-    } catch (e) {
-      err(`이벤트 처리 오류 (${label}): ${e.message}`);
+        await postToSlack(text);
+      } catch (e) {
+        err(`이벤트 처리 오류 (${label}): ${e.message}`);
+      }
     }
-  });
-  log(`👂 [${label}] 전체 이벤트 리스닝 시작...`);
+  } catch (e) {
+    err(`이벤트 조회 오류 (${label}, 블록 ${fromBlock}~${latest}): ${e.message}`);
+  }
+  target.lastBlock = latest;
 }
 
 // ── 메인 ──────────────────────────────────────────────────────────
@@ -213,7 +229,7 @@ async function main() {
   }
 
   const c = config.contracts || {};
-  const targets = [
+  const targetDefs = [
     { addr: c.DentalInsurance,    abi: INSURANCE_ABI, label: "USDC 덴탈보험",   decimals: 6 },
     { addr: c.DentalInsuranceKRW, abi: INSURANCE_ABI, label: "KRW 덴탈보험",    decimals: 0 },
     { addr: c.ReserveFund,        abi: RESERVE_ABI,   label: "USDC 준비금계좌", decimals: 6 },
@@ -221,22 +237,34 @@ async function main() {
     { addr: c.MockUSDC,           abi: FAUCET_ABI,    label: "USDC 파우셋",     decimals: 6 },
   ];
 
-  let attached = 0;
-  for (const t of targets) {
+  const startBlock = await provider.getBlockNumber();
+  const targets = [];
+  for (const t of targetDefs) {
     if (!t.addr) { warn(`${t.label} 컨트랙트 주소 없음 — 스킵`); continue; }
     const contract = new ethers.Contract(t.addr, t.abi, provider);
-    attachListener(contract, t.label, t.decimals);
-    attached++;
+    targets.push({ contract, label: t.label, decimals: t.decimals, lastBlock: startBlock });
+    log(`👂 [${t.label}] 이벤트 폴링 등록 완료`);
   }
 
-  if (attached === 0) {
+  if (targets.length === 0) {
     err("리스닝할 컨트랙트가 하나도 없습니다. config.json을 확인하세요.");
     process.exit(1);
   }
 
+  async function pollAll() {
+    const latest = await provider.getBlockNumber();
+    for (const target of targets) {
+      await pollTarget(target, latest);
+    }
+  }
+
   console.log("-".repeat(65));
-  log(`✅ 슬랙 알림 서비스 실행 중 (${attached}개 컨트랙트, Ctrl+C 로 종료)`);
+  log(`✅ 슬랙 알림 서비스 실행 중 (${targets.length}개 컨트랙트, ${POLL_SEC}초 간격 폴링, Ctrl+C 로 종료)`);
   await postToSlack("🔔 *블록체인 슬랙 알림 서비스가 시작되었습니다.* 이제부터 모든 메뉴 행위 결과가 이 채널로 전송됩니다.");
+
+  setInterval(() => {
+    pollAll().catch(e => err(`폴링 오류: ${e.message}`));
+  }, POLL_SEC * 1000);
 }
 
 main().catch(e => {
