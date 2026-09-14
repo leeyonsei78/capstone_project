@@ -59,8 +59,23 @@ InsuranceChatbot (agents/orchestrator.py)
     ├── retrieve_insurance_knowledge → tools/rag_tools.py (ChromaDB) ← fallback
     ├── fetch_fss_realtime_products  → api/fss_client.py
     ├── get_credit_score             → tools/credit_score_tool.py (CDP)
-    └── get_personalized_recommendation → Sub-agent (GPT-4o)
+    ├── get_personalized_recommendation → Sub-agent (GPT-4o, 단일 completion)
+    └── run_underwriting_review       → Sub-agent (GPT-4o, 자체 tool-calling 루프)
+                                          └── UNDERWRITING_TOOLS (17종: assess_* 시나리오 1~16 + assess_health_risk)
 ```
+
+**언더라이팅 서브에이전트** (`agents/orchestrator.py`의 `_run_underwriting_subagent`):
+- 암 완치자 심사·건강체 할인·유병자 요율·씬파일러 신용보완·역선택 탐지 등 정밀 심사가 필요한
+  질문은 메인 오케스트레이터가 `run_underwriting_review` 하나만 호출하고, 실제 assess_* 17종
+  선택·파라미터 추출·실행은 이 서브에이전트의 독립된 tool-calling 루프(`UNDERWRITING_TOOLS`,
+  `_execute_underwriting_tool`)가 전담한다.
+- 메인 `TOOLS`에는 더 이상 assess_* 개별 도구가 노출되지 않음 (27→11개로 축소).
+- `web_app.py`의 `DEMO_QUERIES`(라이브 모드 데모 시나리오 16개)는 예전에 `assess_*` 도구명을
+  직접 지시했으나, 이제 `run_underwriting_review 도구로 [assess_* 시나리오]` 형태로 상위 도구를
+  가리키도록 갱신됨. `TOOL_LABELS`(JS)에도 `run_underwriting_review` 라벨이 추가됨 (기존
+  `assess_*` 라벨 16개는 이제 SSE로 노출되지 않아 사실상 미사용 — 정리하지 않고 남겨둠).
+- Mock 모드 데모 패널(`/api/demo/run`)은 `tools/*.py`를 직접 import해 호출하므로 이번 변경과
+  무관하게 그대로 동작한다.
 
 **데이터 소스 우선순위** (GPT-4o 지시 순서):
 1. 보험다모아 엑셀 공시 데이터 (`*.xls` 프로젝트 루트 스캔)

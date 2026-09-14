@@ -2842,6 +2842,7 @@ const TOOL_LABELS = {
   retrieve_insurance_knowledge:    '📚 지식 베이스 검색 중...',
   fetch_fss_realtime_products:     '🏛️ FSS 실시간 조회 중...',
   get_personalized_recommendation: '⚡ 맞춤 추천 생성 중...',
+  run_underwriting_review:         '🔬 언더라이팅 정밀 심사 중...',
   search_insmarket_products:       '📊 보험다모아 공시 조회 중...',
   search_web:                      '🌐 웹 검색 중...',
   fetch_webpage:                   '📄 페이지 읽는 중...',
@@ -4167,7 +4168,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_cancer_survivor 도구로 이노베이션 존 RGST 데이터 기반 정밀 인수 심사를 실행하고 조건부 승인 여부와 보험료 할인율을 산출해 주세요.
+① run_underwriting_review 도구로 [assess_cancer_survivor 시나리오] 이노베이션 존 RGST 데이터 기반 정밀 인수 심사를 실행하고 조건부 승인 여부와 보험료 할인율을 산출해 주세요.
 
 ② 심사 결과를 바탕으로 박*준 씨에게 실제로 가입 가능한 보험 상품을 search_insmarket_products로 조회하여 추천해 주세요. 암보험(질병보험)과 실손의료보험 각각 상위 3개 상품을 보험사명·상품명·월 보험료 기준으로 비교표로 제시해 주세요. 완치자 가입 가능 여부도 표시해 주세요.`,
 
@@ -4177,7 +4178,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_low_risk_discount 도구로 AI 저위험군 할인율을 산출해 주세요.
+① run_underwriting_review 도구로 [assess_low_risk_discount 시나리오] AI 저위험군 할인율을 산출해 주세요.
 
 ② 이*현 씨에게 적합한 보험 상품을 search_insmarket_products로 조회하여 추천해 주세요. 실손의료보험·암보험·치아보험 각 상위 2~3개 상품을 보험사명·상품명·표준 월 보험료·할인 적용 후 예상 보험료 기준으로 비교표로 제시해 주세요.`,
 
@@ -4187,7 +4188,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_pacs_no_extra 도구로 광주TP DICOM AI 판독 결과 기반 노-할증 인수 여부를 판단해 주세요.
+① run_underwriting_review 도구로 [assess_pacs_no_extra 시나리오] 광주TP DICOM AI 판독 결과 기반 노-할증 인수 여부를 판단해 주세요.
 
 ② 김*영 씨가 가입할 수 있는 보험 상품을 search_insmarket_products로 조회하여 추천해 주세요. 50대 남성 기준 실손의료보험·암보험 상위 3개 상품을 보험사명·상품명·월 보험료로 비교표를 제시하고, 소결절 소견자 가입 시 주의사항도 안내해 주세요.`,
 
@@ -4197,7 +4198,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_dynamic_discount 도구로 동적 캐시백 금액을 산출해 주세요. (점수 개선 25%, 월보험료 80000원, 1년)
+① run_underwriting_review 도구로 [assess_dynamic_discount 시나리오] 동적 캐시백 금액을 산출해 주세요. (점수 개선 25%, 월보험료 80000원, 1년)
 
 ② 최*민 씨에게 적합한 보험 포트폴리오를 search_insmarket_products로 조회하여 추천해 주세요. 40대 여성 기준 실손의료보험·암보험·치아보험 상위 상품을 보험사명·상품명·월 보험료로 비교표를 제시하고, 캐시백 프로그램 연동 시 실질 비용도 함께 계산해 주세요.`,
 
@@ -4207,7 +4208,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_chronic_disease_rate 도구로 T200~T530 상병 + G1E 치료 반응 기반 맞춤형 유병자 요율을 산출해 주세요. (당뇨, 치료반응 우수, HbA1c 6.8)
+① run_underwriting_review 도구로 [assess_chronic_disease_rate 시나리오] T200~T530 상병 + G1E 치료 반응 기반 맞춤형 유병자 요율을 산출해 주세요. (당뇨, 치료반응 우수, HbA1c 6.8)
 
 ② 정*호 씨가 가입 가능한 유병자 보험 상품을 search_insmarket_products로 조회하여 추천해 주세요. 50대 남성 기준 유병자 실손보험·당뇨합병증 특화 상품·간병보험 상위 3개 상품을 보험사명·상품명·월 보험료로 비교표를 제시해 주세요.`,
 
@@ -4217,7 +4218,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_health_credit 도구로 G1E + 바이탈 안정도 + BFC 기반 Health-Credit 가산점과 금리 인하 혜택을 산출해 주세요. (연속검진 4년, 바이탈 안정도 상, 현재신용점수 680, 전세자금 2억)
+① run_underwriting_review 도구로 [assess_health_credit 시나리오] G1E + 바이탈 안정도 + BFC 기반 Health-Credit 가산점과 금리 인하 혜택을 산출해 주세요. (연속검진 4년, 바이탈 안정도 상, 현재신용점수 680, 전세자금 2억)
 
 ② 이*진 씨에게 적합한 보험 상품도 search_insmarket_products로 조회하여 추천해 주세요. 30대 여성 기준 실손의료보험·암보험 상위 상품을 보험사명·상품명·월 보험료로 비교표를 제시하고, 건강 관리 지속 시 추가 혜택도 안내해 주세요.`,
 
@@ -4227,7 +4228,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_sme_health_loan 도구로 CDW 임상 수치 기반 건강 지속가능성 점수와 대출 한도 증액·금리 우대를 산출해 주세요.
+① run_underwriting_review 도구로 [assess_sme_health_loan 시나리오] CDW 임상 수치 기반 건강 지속가능성 점수와 대출 한도 증액·금리 우대를 산출해 주세요.
 
 ② 오*석 씨에게 적합한 보험 상품도 search_insmarket_products로 조회하여 추천해 주세요. 40대 남성 기준 실손의료보험·당뇨 유병자 보험·간병보험 상위 상품을 보험사명·상품명·월 보험료로 비교표를 제시해 주세요. 대출 상환 보장 보험도 추천에 포함해 주세요.`,
 
@@ -4237,7 +4238,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_rental_approval 도구로 cdw_ptn_hli + DEATH DB 기반 단기 건강 급변 위험을 분석하고 렌탈 승인 여부를 판단해 주세요. (위암 1기 완치, 단기 위험 낮음)
+① run_underwriting_review 도구로 [assess_rental_approval 시나리오] cdw_ptn_hli + DEATH DB 기반 단기 건강 급변 위험을 분석하고 렌탈 승인 여부를 판단해 주세요. (위암 1기 완치, 단기 위험 낮음)
 
 ② 윤*숙 씨에게 적합한 보험 상품도 search_insmarket_products로 조회하여 추천해 주세요. 60대 여성 기준 실손의료보험·간병·치매보험 상위 상품을 보험사명·상품명·월 보험료로 비교표를 제시하고, 암 완치자 가입 가능 여부도 함께 안내해 주세요.`,
 
@@ -4247,7 +4248,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_early_care 도구로 광주TP DICOM + T400 DB 기반 조기 개입 시 중증화 차단 효과와 보험사 절감 효과를 분석해 주세요. (위 미란 소견, 위험 42%, 조기 개입 적용)
+① run_underwriting_review 도구로 [assess_early_care 시나리오] 광주TP DICOM + T400 DB 기반 조기 개입 시 중증화 차단 효과와 보험사 절감 효과를 분석해 주세요. (위 미란 소견, 위험 42%, 조기 개입 적용)
 
 ② 박*호 씨에게 지금 당장 가입해야 할 보험 상품을 search_insmarket_products로 조회하여 추천해 주세요. 50대 남성 기준 암보험(질병보험)·실손의료보험·간병보험 상위 상품을 보험사명·상품명·월 보험료로 비교표를 제시하고, 조기 가입의 중요성도 강조해 주세요.`,
 
@@ -4257,7 +4258,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_default_prevention 도구로 CDW SOFA + RGST 연계 부실 예상 손실과 상환 보험 연계 권고를 분석해 주세요.
+① run_underwriting_review 도구로 [assess_default_prevention 시나리오] CDW SOFA + RGST 연계 부실 예상 손실과 상환 보험 연계 권고를 분석해 주세요.
 
 ② 한*철 씨에게 반드시 필요한 보험 상품을 search_insmarket_products로 조회하여 추천해 주세요. 50대 남성 기준 암보험·간병보험·실손의료보험 상위 상품을 보험사명·상품명·월 보험료로 비교표를 제시하고, 대출 상환 보장 보험 가입이 왜 필수인지도 설명해 주세요.`,
 
@@ -4267,7 +4268,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_healthy_body_discount 도구로 G1E 연속 건강검진 + 바이탈 전 항목 정상 기반 건강체 등급과 보험료 할인율을 산출해 주세요. (연속검진 5년, BMI 정상, 혈압 정상, 혈당 정상, 비흡연, 월보험료 12만원)
+① run_underwriting_review 도구로 [assess_healthy_body_discount 시나리오] G1E 연속 건강검진 + 바이탈 전 항목 정상 기반 건강체 등급과 보험료 할인율을 산출해 주세요. (연속검진 5년, BMI 정상, 혈압 정상, 혈당 정상, 비흡연, 월보험료 12만원)
 
 ② 강*원 씨에게 건강체 특별약관 적용 가능한 보험 상품을 search_insmarket_products로 조회하여 추천해 주세요. 40대 남성 기준 종신보험·실손의료보험·암보험 상위 3개 상품을 보험사명·상품명·표준 월 보험료·건강체 적용 후 예상 보험료로 비교표를 제시해 주세요.`,
 
@@ -4277,7 +4278,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_healthy_body_loan 도구로 G1E + 바이탈 기반 건강 자산 점수(HAS)를 산출하고 건강담보대출 승인 여부·한도·금리를 산출해 주세요. (연속검진 4년, 바이탈 상, BFC 6등급, DSR 52%, 대출 5000만원, 생활자금)
+① run_underwriting_review 도구로 [assess_healthy_body_loan 시나리오] G1E + 바이탈 기반 건강 자산 점수(HAS)를 산출하고 건강담보대출 승인 여부·한도·금리를 산출해 주세요. (연속검진 4년, 바이탈 상, BFC 6등급, DSR 52%, 대출 5000만원, 생활자금)
 
 ② 서*원 씨에게 적합한 보험 상품도 search_insmarket_products로 조회하여 추천해 주세요. 40대 여성 기준 실손의료보험·암보험·치아보험 상위 상품을 보험사명·상품명·월 보험료로 비교표를 제시하고, 건강 담보 대출 연계 보험 유지의 중요성도 안내해 주세요.`,
 
@@ -4287,7 +4288,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_polyp_removal_eligibility 도구로 병리 DB + T400(상병) + DICOM 추적 내시경 기반 재발 위험을 분석하고 보험 가입 가능 여부를 판정해 주세요. (관상선종 저등급, 절제 후 2년, 병리 양성, 추적 내시경 정상, 용종 8mm)
+① run_underwriting_review 도구로 [assess_polyp_removal_eligibility 시나리오] 병리 DB + T400(상병) + DICOM 추적 내시경 기반 재발 위험을 분석하고 보험 가입 가능 여부를 판정해 주세요. (관상선종 저등급, 절제 후 2년, 병리 양성, 추적 내시경 정상, 용종 8mm)
 
 ② 홍*종 씨가 지금 가입 가능한 보험 상품을 search_insmarket_products로 조회하여 추천해 주세요. 50대 남성 기준 실손의료보험·암보험·간병보험 상위 3개 상품을 보험사명·상품명·월 보험료로 비교표를 제시하고, 내시경 용종 절제 이력자 가입 시 주의사항도 함께 안내해 주세요.`,
 
@@ -4297,7 +4298,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_health_secured_loan 도구로 G1E + 바이탈 + 라이프로그 3종 결합 건강 자산 점수(HAS)를 산출하고 신(新) 건강담보대출 PLUS 승인 여부·한도·금리를 산출해 주세요. (연속검진 3년, 바이탈 상, 라이프로그 78점, BFC 5등급, DSR 58%, LTV 82%, 대출 5000만원)
+① run_underwriting_review 도구로 [assess_health_secured_loan 시나리오] G1E + 바이탈 + 라이프로그 3종 결합 건강 자산 점수(HAS)를 산출하고 신(新) 건강담보대출 PLUS 승인 여부·한도·금리를 산출해 주세요. (연속검진 3년, 바이탈 상, 라이프로그 78점, BFC 5등급, DSR 58%, LTV 82%, 대출 5000만원)
 
 ② 나*출 씨에게 적합한 보험 상품도 search_insmarket_products로 조회하여 추천해 주세요. 50대 남성 기준 실손의료보험·암보험·간병보험 상위 상품을 보험사명·상품명·월 보험료로 비교표를 제시하고, 건강 자산 담보 대출과 보험 연계의 중요성도 함께 설명해 주세요.`,
 
@@ -4307,7 +4308,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_adverse_selection_score 도구로 신용+건강 교차 AASI(역선택방지지수) 분석을 실행하고 역선택 위험 등급과 필요 조치를 산출해 주세요. (신용점수 650점, 6개월 -130점 급락, 보험금 10000만원, 검진 30개월 미수검, 복수 보험사 동시 신청, 고액 전환 true)
+① run_underwriting_review 도구로 [assess_adverse_selection_score 시나리오] 신용+건강 교차 AASI(역선택방지지수) 분석을 실행하고 역선택 위험 등급과 필요 조치를 산출해 주세요. (신용점수 650점, 6개월 -130점 급락, 보험금 10000만원, 검진 30개월 미수검, 복수 보험사 동시 신청, 고액 전환 true)
 
 ② 역선택 분석 결과를 바탕으로 보험사 입장에서의 심사 권고사항과, 동시에 강*민 씨가 정상적인 방법으로 가입 가능한 보험 상품(실손의료보험 등)을 search_insmarket_products로 조회하여 안내해 주세요.`,
 
@@ -4317,7 +4318,7 @@ const DEMO_QUERIES = {
 
 다음 두 단계로 분석해 주세요.
 
-① assess_thin_filer_adverse_selection 도구로 씬파일러 역선택 위험 분석을 실행하고 가입 가능 여부, 포용 금융 경로, 건강 데이터 제출 요청 방안을 산출해 주세요. (CB 이력 없음, 건강검진 0회, 보험금 8000만원, 갑작스러운 첫 신청, 바이탈 없음)
+① run_underwriting_review 도구로 [assess_thin_filer_adverse_selection 시나리오] 씬파일러 역선택 위험 분석을 실행하고 가입 가능 여부, 포용 금융 경로, 건강 데이터 제출 요청 방안을 산출해 주세요. (CB 이력 없음, 건강검진 0회, 보험금 8000만원, 갑작스러운 첫 신청, 바이탈 없음)
 
 ② 씬파일러이지만 역선택 위험이 없는 경우의 포용 보험 가입 경로를 안내하고, 윤*아 씨가 지금 당장 가입 가능한 보험 상품을 search_insmarket_products로 조회하여 20~30대 여성 기준 실손의료보험·암보험 상위 상품을 비교표로 제시해 주세요.`,
 };

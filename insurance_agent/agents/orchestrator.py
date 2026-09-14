@@ -2,9 +2,11 @@
 보험 상담 오케스트레이터 에이전트 (v2 - 벡터 RAG + FSS API + 덴탈/암보험)
 
 다중 에이전트 파이프라인:
-  1. Orchestrator (gpt-4o): 사용자 의도 파악 + 도구 호출
+  1. Orchestrator (gpt-4o): 사용자 의도 파악 + 도구 호출 (TOOLS, 11종)
   2. Sub-agent (gpt-4o): 개인화 추천 생성 (get_personalized_recommendation)
-  3. 도구들: 상품 검색/비교/견적, 벡터 RAG 지식 검색, FSS API 실시간 조회
+  3. Sub-agent (gpt-4o): 언더라이팅 정밀심사 (run_underwriting_review → UNDERWRITING_TOOLS, 17종)
+     자체 tool-calling 루프로 assess_* 도구를 직접 선택·실행 후 결과를 종합해 반환한다.
+  4. 도구들: 상품 검색/비교/견적, 벡터 RAG 지식 검색, FSS API 실시간 조회
 """
 
 from __future__ import annotations
@@ -299,45 +301,6 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "assess_health_risk",
-            "description": (
-                "건강검진 수치로 만성질환(당뇨·대사질환) 위험을 예측하고, 그 위험에 맞는 "
-                "보험 유형과 실제 보험다모아 상품을 추천합니다. "
-                "개인정보 이노베이션 존 RGST(국립암센터 암등록)·DEATH·BFC(보험료분위) 데이터 패턴을 "
-                "활용해 암 위험과 납부 가능 보험료 범위도 함께 분석합니다. "
-                "사용자가 건강검진 결과(혈압·혈당·BMI·간수치·콜레스테롤 등)를 알려주거나, "
-                "'내 건강 상태에 맞는 보험', '건강 위험 기반 보장 설계'를 원할 때 사용하세요. "
-                "나이·성별만 있어도 동작하며, 검진 수치가 많을수록 정확합니다."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "age": {"type": "integer", "description": "나이"},
-                    "gender": {"type": "string", "enum": ["남", "여"], "description": "성별"},
-                    "height": {"type": "number", "description": "키(cm)"},
-                    "weight": {"type": "number", "description": "몸무게(kg)"},
-                    "waist": {"type": "number", "description": "허리둘레(cm)"},
-                    "sbp": {"type": "number", "description": "수축기 혈압"},
-                    "dbp": {"type": "number", "description": "이완기 혈압"},
-                    "total_cholesterol": {"type": "number", "description": "총콜레스테롤"},
-                    "triglyceride": {"type": "number", "description": "중성지방(TG)"},
-                    "hdl": {"type": "number", "description": "HDL 콜레스테롤"},
-                    "ldl": {"type": "number", "description": "LDL 콜레스테롤"},
-                    "ast": {"type": "number", "description": "AST(간수치)"},
-                    "alt": {"type": "number", "description": "ALT(간수치)"},
-                    "ggt": {"type": "number", "description": "감마지티피(GGT)"},
-                    "smoke": {"type": "integer", "enum": [1, 2, 3], "description": "1=비흡연,2=과거흡연,3=현재흡연"},
-                    "drink": {"type": "integer", "enum": [0, 1], "description": "0=비음주,1=음주"},
-                    "bfc_tier": {"type": "integer", "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-                                 "description": "BFC 보험료 분위 1~10 (BFC.CALC_CTRB_VTILE_FD, 1=하위10%·10=상위10%). 소득 수준을 알 때 제공"},
-                },
-                "required": ["age", "gender"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "get_personalized_recommendation",
             "description": (
                 "사용자 프로필을 바탕으로 개인화된 보험 포트폴리오를 추천합니다. "
@@ -372,6 +335,83 @@ TOOLS = [
                         "type": "string",
                         "description": "직업/직종. 예: '사무직', '자영업', '주부', '은퇴'",
                     },
+                },
+                "required": ["age", "gender"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_underwriting_review",
+            "description": (
+                "언더라이팅(보험 인수심사) 전문 서브에이전트를 호출합니다. "
+                "암 완치자 재가입 심사, 건강검진 기반 할인/할증, 만성질환자 요율, "
+                "씬파일러 신용보완, 유병자·고령층 대출/렌탈 승인, 역선택 탐지 등 "
+                "'가입 가능한지', '보험료가 왜 이렇게 산정되는지', '대출 승인이 되는지'를 "
+                "구체적인 건강·금융 수치나 병력을 근거로 정밀 심사해야 하는 질문에 사용하세요. "
+                "일반 상품 추천/비교/견적에는 사용하지 마세요 (그런 경우 get_personalized_recommendation 등 사용)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "request": {
+                        "type": "string",
+                        "description": (
+                            "사용자의 심사 관련 질문을 대화 맥락을 포함해 자기완결적으로 정리한 요청문. "
+                            "나이·성별과 언급된 구체적 건강·금융 수치·병력을 빠짐없이 포함하세요. "
+                            "예: '52세 남성, 3년 전 위암 2기 완치, 최근 건강검진 정상. "
+                            "지금 보험 가입 가능한지와 할증 여부를 알려줘'"
+                        ),
+                    },
+                },
+                "required": ["request"],
+            },
+        },
+    },
+]
+
+# ───────────────────────────────────────────
+# 언더라이팅 서브에이전트 전용 도구
+# (메인 오케스트레이터 TOOLS에는 노출되지 않고, run_underwriting_review 호출 시
+#  _run_underwriting_subagent() 내부 tool-calling 루프에서만 사용됨)
+# ───────────────────────────────────────────
+
+UNDERWRITING_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "assess_health_risk",
+            "description": (
+                "건강검진 수치로 만성질환(당뇨·대사질환) 위험을 예측하고, 그 위험에 맞는 "
+                "보험 유형과 실제 보험다모아 상품을 추천합니다. "
+                "개인정보 이노베이션 존 RGST(국립암센터 암등록)·DEATH·BFC(보험료분위) 데이터 패턴을 "
+                "활용해 암 위험과 납부 가능 보험료 범위도 함께 분석합니다. "
+                "사용자가 건강검진 결과(혈압·혈당·BMI·간수치·콜레스테롤 등)를 알려주거나, "
+                "'내 건강 상태에 맞는 보험', '건강 위험 기반 보장 설계'를 원할 때 사용하세요. "
+                "나이·성별만 있어도 동작하며, 검진 수치가 많을수록 정확합니다."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "age": {"type": "integer", "description": "나이"},
+                    "gender": {"type": "string", "enum": ["남", "여"], "description": "성별"},
+                    "height": {"type": "number", "description": "키(cm)"},
+                    "weight": {"type": "number", "description": "몸무게(kg)"},
+                    "waist": {"type": "number", "description": "허리둘레(cm)"},
+                    "sbp": {"type": "number", "description": "수축기 혈압"},
+                    "dbp": {"type": "number", "description": "이완기 혈압"},
+                    "total_cholesterol": {"type": "number", "description": "총콜레스테롤"},
+                    "triglyceride": {"type": "number", "description": "중성지방(TG)"},
+                    "hdl": {"type": "number", "description": "HDL 콜레스테롤"},
+                    "ldl": {"type": "number", "description": "LDL 콜레스테롤"},
+                    "ast": {"type": "number", "description": "AST(간수치)"},
+                    "alt": {"type": "number", "description": "ALT(간수치)"},
+                    "ggt": {"type": "number", "description": "감마지티피(GGT)"},
+                    "smoke": {"type": "integer", "enum": [1, 2, 3], "description": "1=비흡연,2=과거흡연,3=현재흡연"},
+                    "drink": {"type": "integer", "enum": [0, 1], "description": "0=비음주,1=음주"},
+                    "bfc_tier": {"type": "integer", "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                                 "description": "BFC 보험료 분위 1~10 (BFC.CALC_CTRB_VTILE_FD, 1=하위10%·10=상위10%). 소득 수준을 알 때 제공"},
                 },
                 "required": ["age", "gender"],
             },
@@ -772,6 +812,7 @@ TOOLS = [
     },
 ]
 
+
 # ───────────────────────────────────────────
 # 사전 라우팅 (Live Mode Pre-routing)
 # ───────────────────────────────────────────
@@ -871,67 +912,11 @@ def execute_tool(tool_name: str, tool_input: dict, client: openai.OpenAI) -> str
             max_results=tool_input.get("max_results", 5),
         )
 
-    elif tool_name == "assess_health_risk":
-        _VALID = {"age","gender","height","weight","waist","sbp","dbp",
-                  "total_cholesterol","triglyceride","hdl","ldl",
-                  "ast","alt","ggt","smoke","drink","bfc_tier","include_products"}
-        return assess_health_risk(**{k: v for k, v in tool_input.items() if k in _VALID})
+    elif tool_name == "run_underwriting_review":
+        return _run_underwriting_subagent(tool_input["request"], client)
 
     elif tool_name == "get_personalized_recommendation":
         return _run_recommendation_subagent(tool_input, client)
-
-    # ── 시나리오 1~5: 보험 정밀 언더라이팅 ──────────────────────
-    elif tool_name == "assess_cancer_survivor":
-        return assess_cancer_survivor(**tool_input)
-
-    elif tool_name == "assess_low_risk_discount":
-        return assess_low_risk_discount(**tool_input)
-
-    elif tool_name == "assess_pacs_no_extra":
-        return assess_pacs_no_extra(**tool_input)
-
-    elif tool_name == "assess_dynamic_discount":
-        return assess_dynamic_discount(**tool_input)
-
-    elif tool_name == "assess_chronic_disease_rate":
-        return assess_chronic_disease_rate(**tool_input)
-
-    # ── 시나리오 6~8: 금융 포용성 확대 ──────────────────────────
-    elif tool_name == "assess_health_credit":
-        return assess_health_credit(**tool_input)
-
-    elif tool_name == "assess_sme_health_loan":
-        return assess_sme_health_loan(**tool_input)
-
-    elif tool_name == "assess_rental_approval":
-        return assess_rental_approval(**tool_input)
-
-    # ── 시나리오 11·13: 건강체 & 용종 보험 언더라이팅 ──────────────
-    elif tool_name == "assess_healthy_body_discount":
-        return assess_healthy_body_discount(**tool_input)
-
-    elif tool_name == "assess_polyp_removal_eligibility":
-        return assess_polyp_removal_eligibility(**tool_input)
-
-    # ── 시나리오 12·14: 건강 데이터 기반 대출 ────────────────────
-    elif tool_name == "assess_healthy_body_loan":
-        return assess_healthy_body_loan(**tool_input)
-
-    elif tool_name == "assess_health_secured_loan":
-        return assess_health_secured_loan(**tool_input)
-
-    # ── 시나리오 9~10: 위험 관리 ────────────────────────────────
-    elif tool_name == "assess_early_care":
-        return assess_early_care(**tool_input)
-
-    elif tool_name == "assess_default_prevention":
-        return assess_default_prevention(**tool_input)
-
-    elif tool_name == "assess_adverse_selection_score":
-        return assess_adverse_selection_score(**tool_input)
-
-    elif tool_name == "assess_thin_filer_adverse_selection":
-        return assess_thin_filer_adverse_selection(**tool_input)
 
     else:
         return json.dumps({"error": f"알 수 없는 도구: {tool_name}"}, ensure_ascii=False)
@@ -1220,6 +1205,146 @@ def _run_recommendation_subagent(user_profile: dict, client: openai.OpenAI) -> s
 
     except Exception:
         return raw
+
+
+def _execute_underwriting_tool(tool_name: str, tool_input: dict) -> str:
+    """언더라이팅 서브에이전트 전용 도구 실행기 (UNDERWRITING_TOOLS 대응)."""
+    if tool_name == "assess_health_risk":
+        _VALID = {"age","gender","height","weight","waist","sbp","dbp",
+                  "total_cholesterol","triglyceride","hdl","ldl",
+                  "ast","alt","ggt","smoke","drink","bfc_tier","include_products"}
+        return assess_health_risk(**{k: v for k, v in tool_input.items() if k in _VALID})
+
+    elif tool_name == "assess_cancer_survivor":
+        return assess_cancer_survivor(**tool_input)
+
+    elif tool_name == "assess_low_risk_discount":
+        return assess_low_risk_discount(**tool_input)
+
+    elif tool_name == "assess_pacs_no_extra":
+        return assess_pacs_no_extra(**tool_input)
+
+    elif tool_name == "assess_dynamic_discount":
+        return assess_dynamic_discount(**tool_input)
+
+    elif tool_name == "assess_chronic_disease_rate":
+        return assess_chronic_disease_rate(**tool_input)
+
+    elif tool_name == "assess_health_credit":
+        return assess_health_credit(**tool_input)
+
+    elif tool_name == "assess_sme_health_loan":
+        return assess_sme_health_loan(**tool_input)
+
+    elif tool_name == "assess_rental_approval":
+        return assess_rental_approval(**tool_input)
+
+    elif tool_name == "assess_healthy_body_discount":
+        return assess_healthy_body_discount(**tool_input)
+
+    elif tool_name == "assess_polyp_removal_eligibility":
+        return assess_polyp_removal_eligibility(**tool_input)
+
+    elif tool_name == "assess_healthy_body_loan":
+        return assess_healthy_body_loan(**tool_input)
+
+    elif tool_name == "assess_health_secured_loan":
+        return assess_health_secured_loan(**tool_input)
+
+    elif tool_name == "assess_early_care":
+        return assess_early_care(**tool_input)
+
+    elif tool_name == "assess_default_prevention":
+        return assess_default_prevention(**tool_input)
+
+    elif tool_name == "assess_adverse_selection_score":
+        return assess_adverse_selection_score(**tool_input)
+
+    elif tool_name == "assess_thin_filer_adverse_selection":
+        return assess_thin_filer_adverse_selection(**tool_input)
+
+    else:
+        return json.dumps({"error": f"알 수 없는 도구: {tool_name}"}, ensure_ascii=False)
+
+
+_UNDERWRITING_SYSTEM_PROMPT = """당신은 보험 언더라이팅(인수심사) 전문 심사역입니다.
+아래 도구들로 고객의 구체적인 건강·금융 데이터를 근거로 인수 가능 여부, 할증/할인율,
+대출·금융 우대 조건을 정밀 산출합니다.
+
+## 도구 선택 가이드
+- 암 완치자 재가입 → assess_cancer_survivor
+- 건강검진 연속 정상·비흡연 등 저위험군 할인 → assess_low_risk_discount
+- 낭종·결절 등 경미한 영상 소견으로 할증 우려 → assess_pacs_no_extra
+- 건강 개선(체중감량·금연 등) 캐시백 → assess_dynamic_discount
+- 당뇨·고혈압 등 만성질환 보유자 요율 → assess_chronic_disease_rate
+- 만성질환 위험 예측 + 보장설계 → assess_health_risk
+- 씬파일러(금융이력 없음)의 건강 기반 신용·금리 보완 → assess_health_credit
+- 자영업자의 건강 기반 사업자대출 우대 → assess_sme_health_loan
+- 고령·유병자 렌탈/할부 금융 승인 → assess_rental_approval
+- 건강체 등급 보험료 할인 → assess_healthy_body_discount
+- 용종 절제 이력자 가입 가능 여부 → assess_polyp_removal_eligibility
+- DSR 초과로 은행 대출 거절된 건강체의 대출 → assess_healthy_body_loan
+- DSR·LTV 모두 초과한 경우의 건강담보대출 → assess_health_secured_loan
+- 신용점수 급락 + 건강검진 기피 + 고액 가입 동시 발생 → assess_adverse_selection_score
+- 금융 이력 없는 자의 역선택(고액 첫 가입) 탐지 → assess_thin_filer_adverse_selection
+- 미세 영상 소견의 조기개입 여부 → assess_early_care
+- 중증질환 전환 위험과 대출 부실 연계 예측 → assess_default_prevention
+
+## 원칙
+1. 요청문에서 나이·성별과 구체적 수치·병력을 최대한 추출해 도구 파라미터로 채우세요.
+   빠진 값은 합리적으로 가정하되, 가정했다는 사실을 답변에 명시하세요.
+2. 관련 있는 도구를 최소 1개 이상 실제로 호출해, 그 산출값을 근거로만 답변하세요 (추측 금지).
+   여러 시나리오가 겹치면 관련 도구를 모두 호출해 종합하세요.
+3. 최종 답변은 한국어로, 결론(가입 가능 여부/할증률/할인율/승인 여부 등) → 산출 근거 → 유의사항
+   순으로 구성하세요."""
+
+
+def _run_underwriting_subagent(request: str, client: openai.OpenAI) -> str:
+    """
+    언더라이팅 심사 Sub-agent.
+    assess_* 17개 전용 도구로 구성된 별도 tool-calling 루프를 돌려
+    가입 가능 여부·할증/할인율·대출 승인 등을 산출하고 근거와 함께 답변한다.
+    """
+    messages = [
+        {"role": "system", "content": _UNDERWRITING_SYSTEM_PROMPT},
+        {"role": "user", "content": request},
+    ]
+
+    max_iterations = 4
+    for _ in range(max_iterations):
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=2000,
+            messages=messages,
+            tools=UNDERWRITING_TOOLS,
+        )
+        choice = response.choices[0]
+
+        if choice.finish_reason == "tool_calls":
+            tool_calls = choice.message.tool_calls or []
+            messages.append({
+                "role": "assistant",
+                "content": choice.message.content,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    }
+                    for tc in tool_calls
+                ],
+            })
+            for tc in tool_calls:
+                try:
+                    tool_input = json.loads(tc.function.arguments)
+                    result = _execute_underwriting_tool(tc.function.name, tool_input)
+                except Exception as e:
+                    result = json.dumps({"error": str(e)}, ensure_ascii=False)
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+        else:
+            return choice.message.content or "심사 결과를 생성하지 못했습니다."
+
+    return "언더라이팅 심사 처리 중 반복 한도를 초과했습니다. 질문을 조금 더 구체적으로 해주세요."
 
 
 # ───────────────────────────────────────────
