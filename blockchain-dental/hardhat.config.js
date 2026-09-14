@@ -1,6 +1,13 @@
 require("@nomicfoundation/hardhat-ethers");
 require("dotenv").config();
 
+// .env.example의 PRIVATE_KEY 예시값("your_private_key_without_0x_prefix")처럼
+// 실제 32바이트 hex 키가 아닌 값이 들어있으면(placeholder 미교체 등) sepolia
+// 계정으로 넣지 않고 조용히 건너뜀 — Sepolia 배포를 안 쓰는 로컬 테스트에서
+// 이 값 때문에 hardhat 명령 자체가 HH8 에러로 죽는 것을 방지.
+const rawPrivateKey = (process.env.PRIVATE_KEY || "").replace(/^0x/i, "");
+const sepoliaAccounts = /^[0-9a-fA-F]{64}$/.test(rawPrivateKey) ? [rawPrivateKey] : [];
+
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
@@ -23,7 +30,7 @@ module.exports = {
     },
     sepolia: {
       url: process.env.SEPOLIA_RPC_URL || "",
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      accounts: sepoliaAccounts,
       chainId: 11155111
     }
   },
