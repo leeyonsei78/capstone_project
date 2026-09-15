@@ -141,6 +141,56 @@ let eventListenersAttached = false;
 let currencyMode = 'USDC';   // 'USDC' | 'KRW'
 let configCache  = null;     // config.json 캐시
 
+// ── 증권 발급 이메일 발송 (n8n 연동, 선택) ───────────────────────
+// 로컬 Docker로 띄운 n8n의 Webhook 노드 URL을 여기에 채워 넣으면, 증권이
+// 발급되는 시점에 해당 지갑에 연결된 이메일로 다운로드 링크를 보낼 수 있음.
+// 비워두면(기본값) 아무 일도 하지 않고 조용히 건너뜀 — 다른 선택 기능들과
+// 동일하게 "없으면 스킵" 원칙.
+// 예: "http://localhost:5678/webhook/cert-email"
+const N8N_CERT_EMAIL_WEBHOOK_URL = "";
+
+function certEmailStorageKey(address) {
+  return `certEmail:${(address || "").toLowerCase()}`;
+}
+
+function rememberCertEmail(address, email) {
+  if (!address || !email) return;
+  try { localStorage.setItem(certEmailStorageKey(address), email); } catch (_) { /* 무시 */ }
+}
+
+function lookupCertEmail(address) {
+  try { return localStorage.getItem(certEmailStorageKey(address)) || null; } catch (_) { return null; }
+}
+
+// 증권 발급(PolicyCreated) 시점에 호출 — 이 지갑 주소로 등록된 이메일이 있으면
+// n8n Webhook으로 {email, policyId, patientName, currency, certUrl}을 push.
+// certificate-service.js가 만드는 파일명 규칙(scripts/certificate-service.js의
+// certFileName)과 동일하게 URL을 미리 구성해서 넘긴다 — n8n 쪽에서 몇 초 대기한
+// 뒤 그 링크로 발송하면 PDF 생성 타이밍과 자연스럽게 맞음.
+async function notifyN8nCertReady(policyId, patientAddress, patientName) {
+  if (!N8N_CERT_EMAIL_WEBHOOK_URL) return;
+  const email = lookupCertEmail(patientAddress);
+  if (!email) return;
+
+  const certFileName = `${currencyMode.toLowerCase()}-policy-${policyId}.pdf`;
+  try {
+    await fetch(N8N_CERT_EMAIL_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        policyId: Number(policyId),
+        patientName,
+        currency: currencyMode,
+        certFileName,
+      }),
+    });
+    addLog("info", `📧 n8n으로 증권 발급 이메일 발송 요청 전송 (증권 #${policyId} → ${email})`);
+  } catch (e) {
+    addLog("error", "n8n 이메일 발송 요청 실패", e.message);
+  }
+}
+
 function stableDecimals() { return currencyMode === 'KRW' ? 0 : 6; }
 function stableSymbol()   { return currencyMode === 'KRW' ? '₩' : '$'; }
 function stableName()     { return currencyMode === 'KRW' ? 'KRW' : 'USDC'; }
@@ -958,6 +1008,10 @@ function attachEventListeners() {
       `피보험자 : ${patient}\n월보험료 : ${fmtUsdc(premium)}\n보장한도 : ${fmtUsdc(limit)}\n블록     : ${event.log.blockNumber}`,
       event.log.transactionHash);
     refreshAll();
+    // 이 지갑(patient) 주소로 등록해둔 이메일이 있으면 n8n에 발송 요청 —
+    // certificate-service.js가 PDF를 만드는 데 몇 초 걸리므로, n8n 워크플로우
+    // 쪽에서 짧게 대기한 뒤 다운로드 링크를 이메일로 보내는 구조를 전제로 함.
+    notifyN8nCertReady(policyId, patient, name);
   });
   insCtx.on("PremiumPaid", (policyId, patient, amount, totalPaid, ts, event) => {
     addLog("event", `💳 보험료 납입 이벤트: 증권 #${policyId}`,
@@ -2505,6 +2559,7 @@ async function submitApplication() {
 
   const name        = el("appName")?.value.trim();
   const age         = parseInt(el("appAge")?.value || "0");
+  const email       = el("appEmail")?.value.trim();
   const premium     = parseUsdc(el("appPremium")?.value);
   const coverage    = parseUsdc(el("appCoverage")?.value);
   const matDays     = parseInt(el("appMaturityDays")?.value || "365");
@@ -2522,8 +2577,10 @@ async function submitApplication() {
     .map(opt => opt.label);
   const coverageCount = selectedLabels.length;
 
+  if (email) rememberCertEmail(userAddr, email);
+
   addLog("info", "청약 입력값",
-    `이름: ${name} / 나이: ${age}세\n선택 담보(${coverageCount}개): ${selectedLabels.join(", ") || "-"}\n` +
+    `이름: ${name} / 나이: ${age}세${email ? ` / 이메일: ${email}` : ""}\n선택 담보(${coverageCount}개): ${selectedLabels.join(", ") || "-"}\n` +
     `월보험료: ${fmtUsdc(premium)} / 보장한도: ${fmtUsdc(coverage)}\n기간: ${matDays}일 / 환급율: ${refundRate}%`);
 
   await sendTx(
