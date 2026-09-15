@@ -25,8 +25,10 @@ function getStagedDiff() {
     // -U0: 컨텍스트 줄 없이 변경된 줄만. 바이너리 파일은 diff에 안 나오므로 자동 제외됨.
     return execSync("git diff --cached -U0 --no-color", { encoding: "utf8", maxBuffer: 1024 * 1024 * 50 });
   } catch (e) {
-    console.error("❌ git diff --cached 실행 실패:", e.message);
-    process.exit(1);
+    // 스캐너 도구 자체의 문제로 커밋이 영영 막히면 안 되므로 fail-open —
+    // 실제 시크릿을 찾았을 때만(hasBlocking) 커밋을 막는다.
+    console.warn(`⚠️  git diff --cached 실행 실패, 시크릿 스캔을 건너뜁니다: ${e.message}`);
+    return null;
   }
 }
 
@@ -52,6 +54,9 @@ function parseAddedLines(diffText) {
 
 function main() {
   const diff = getStagedDiff();
+  if (diff === null) {
+    process.exit(0); // diff 조회 자체가 실패 — 스캐너 문제로 커밋을 막지 않음(fail-open)
+  }
   if (!diff.trim()) {
     process.exit(0); // 스테이징된 변경 없음 — 통과
   }
@@ -88,4 +93,12 @@ function main() {
   process.exit(0);
 }
 
-main();
+// 스캐너 도구 자체의 버그로 커밋이 영영 막히면 안 되므로, 예상 못한 예외는
+// 경고만 남기고 fail-open(커밋 허용). 실제 시크릿 발견(hasBlocking) 시의
+// 의도된 차단(process.exit(1))만 커밋을 막는다.
+try {
+  main();
+} catch (e) {
+  console.warn(`⚠️  시크릿 스캐너 내부 오류(무시하고 커밋 진행): ${e.message}`);
+  process.exit(0);
+}

@@ -53,4 +53,10 @@ function main() {
   console.log("✅ pre-commit 훅 설치 완료 (커밋 시 scripts/check-secrets.js가 자동 실행됩니다)");
 }
 
-main();
+// 이 훅 설치는 부가 보안 기능일 뿐 — 여기서 무슨 오류가 나든 npm install
+// 본 설치 자체를 실패시키면 안 되므로 절대 예외를 던지지 않는다.
+try {
+  main();
+} catch (e) {
+  console.warn(`⚠️  pre-commit 훅 설치 중 오류(무시하고 계속 진행): ${e.message}`);
+}
