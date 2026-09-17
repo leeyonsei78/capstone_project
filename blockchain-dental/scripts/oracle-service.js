@@ -41,6 +41,10 @@ const RPC_URL     = process.env.RPC_URL     || "http://127.0.0.1:8545";
 const ORACLE_KEY  = process.env.ORACLE_KEY  || "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6";
 const CONFIG_PATH = path.join(__dirname, "..", "frontend", "config.json");
 
+// USDC↔KRW 환산 환율 — main()에서 config.json의 krwPerUsd(scripts/deploy.js가 기록)로
+// 갱신됨. frontend/app.js가 쓰는 값과 동일한 소스라 두 곳이 따로 하드코딩해 어긋나지 않음.
+let KRW_PER_USD = 1400;
+
 // ── ABI ───────────────────────────────────────────────────────────
 const ABI = [
   "function getAllClaimIds() view returns (uint256[])",
@@ -197,7 +201,7 @@ async function processClaimWithOracle(contract, claimId, decimals, currency) {
 
   let result;
   try {
-    result = await hospitalProvider.verifyClaimAmount(claim.treatmentCode, claim.amount, decimals);
+    result = await hospitalProvider.verifyClaimAmount(claim.treatmentCode, claim.amount, decimals, KRW_PER_USD);
   } catch (e) {
     err(`병원 API 호출 실패: ${e.message}`);
     return;
@@ -268,6 +272,9 @@ async function main() {
     process.exit(1);
   }
   const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+  if (typeof config.krwPerUsd === "number" && config.krwPerUsd > 0) {
+    KRW_PER_USD = config.krwPerUsd;
+  }
 
   const provider = new ethers.JsonRpcProvider(RPC_URL);
   const oracle   = new ethers.Wallet(ORACLE_KEY, provider);

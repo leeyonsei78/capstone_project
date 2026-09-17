@@ -81,8 +81,11 @@ class MockHospitalProvider extends BaseHospitalProvider {
    * @param {string} treatmentCode
    * @param {bigint|number} requestedAmount - 토큰 단위 금액
    * @param {number} decimals - 토큰 소수점 자리수 (USDC=6, KRW=0)
+   * @param {number} krwPerUsd - USDC→KRW 환산 환율. oracle-service.js가 config.json의
+   *   krwPerUsd(scripts/deploy.js가 기록)를 읽어 넘겨줌 — frontend/app.js와 동일한 값.
+   *   호출자가 안 넘기면(예: 단독 테스트) 1400으로 폴백.
    */
-  async verifyClaimAmount(treatmentCode, requestedAmount, decimals = 6) {
+  async verifyClaimAmount(treatmentCode, requestedAmount, decimals = 6, krwPerUsd = 1400) {
     await sleep(MOCK_LATENCY_MS);
 
     const treatment = TREATMENT_DB[treatmentCode];
@@ -99,11 +102,10 @@ class MockHospitalProvider extends BaseHospitalProvider {
     }
 
     // 통화별 허용 한도 계산
-    const KRW_PER_USD  = 1400;
     const divisor      = Math.pow(10, decimals);
     const requestedVal = Number(requestedAmount) / divisor;
     const maxVal       = decimals === 0
-      ? treatment.maxUsd * KRW_PER_USD  // KRW 한도 (원)
+      ? treatment.maxUsd * krwPerUsd    // KRW 한도 (원)
       : treatment.maxUsd;               // USD 한도 ($)
     const symbol       = decimals === 0 ? "₩" : "$";
     const formatVal    = (v) => decimals === 0

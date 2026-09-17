@@ -163,16 +163,22 @@ function lookupCertEmail(address) {
 }
 
 // 증권 발급(PolicyCreated) 시점에 호출 — 이 지갑 주소로 등록된 이메일이 있으면
-// n8n Webhook으로 {email, policyId, patientName, currency, certUrl}을 push.
+// n8n Webhook으로 {email, policyId, patientName, currency, certFileName, certUrl}을 push.
 // certificate-service.js가 만드는 파일명 규칙(scripts/certificate-service.js의
 // certFileName)과 동일하게 URL을 미리 구성해서 넘긴다 — n8n 쪽에서 몇 초 대기한
 // 뒤 그 링크로 발송하면 PDF 생성 타이밍과 자연스럽게 맞음.
+// certUrl은 location.origin(지금 접속 중인 프론트엔드 주소, 예: http://localhost:3000)
+// 기준 완전한 다운로드 링크 — PDF는 certificate-service.js가 frontend/certificates/
+// 아래에 저장하고, 프론트엔드 서버(npx serve)가 그 디렉터리를 그대로 정적 서빙하므로
+// "/certificates/<파일명>" 경로로 바로 접근 가능하다. n8n이 base URL을 따로
+// 하드코딩할 필요 없이 이 값을 그대로 이메일 링크로 쓰면 된다.
 async function notifyN8nCertReady(policyId, patientAddress, patientName) {
   if (!N8N_CERT_EMAIL_WEBHOOK_URL) return;
   const email = lookupCertEmail(patientAddress);
   if (!email) return;
 
   const certFileName = `${currencyMode.toLowerCase()}-policy-${policyId}.pdf`;
+  const certUrl = `${location.origin}/certificates/${certFileName}`;
   try {
     await fetch(N8N_CERT_EMAIL_WEBHOOK_URL, {
       method: "POST",
@@ -183,9 +189,10 @@ async function notifyN8nCertReady(policyId, patientAddress, patientName) {
         patientName,
         currency: currencyMode,
         certFileName,
+        certUrl,
       }),
     });
-    addLog("info", `📧 n8n으로 증권 발급 이메일 발송 요청 전송 (증권 #${policyId} → ${email})`);
+    addLog("info", `📧 n8n으로 증권 발급 이메일 발송 요청 전송 (증권 #${policyId} → ${email})`, `certUrl: ${certUrl}`);
   } catch (e) {
     addLog("error", "n8n 이메일 발송 요청 실패", e.message);
   }
@@ -962,6 +969,9 @@ async function tryLoadConfig() {
     }
     const cfg = await res.json();
     configCache = cfg;
+    if (typeof cfg.krwPerUsd === "number" && cfg.krwPerUsd > 0) {
+      KRW_PER_USD = cfg.krwPerUsd; // scripts/deploy.js가 기록한 값 — 백엔드(mock-provider.js)와 동일한 소스
+    }
     if (cfg.contracts) {
       applyConfigForCurrency();
       addLog("success", "config.json 로드 완료",
@@ -1084,6 +1094,27 @@ function updateCurrencyLabels() {
   // ── 준비금 계좌 탭 ────────────────────────────────────────
   if (el("reserveDepositLabel"))  el("reserveDepositLabel").textContent  = `송금 금액 (${sym})`;
   if (el("reserveWithdrawLabel")) el("reserveWithdrawLabel").textContent = `인출 금액 (${sym})`;
+
+  // ── 보험료 납입 탭 ────────────────────────────────────────
+  if (el("premiumApproveNote")) el("premiumApproveNote").textContent =
+    `보험료 납입 시 자동으로 ${sym} approve → payPremium 순서로 처리됩니다 (선택한 증권이 실제로 속한 통화 기준). MetaMask에서 2번의 서명이 필요할 수 있습니다.`;
+  if (el("premiumCurrencyNote")) el("premiumCurrencyNote").textContent =
+    `보험료는 그 증권이 등록된 통화(USDC 또는 KRW)로 납입됩니다 — 현재 화면 통화: ${sym}`;
+  if (el("premiumBalanceNote")) el("premiumBalanceNote").textContent =
+    `납입 전 충분한 ${sym} 잔액이 있어야 합니다 (다른 통화 증권을 납입하려면 그 통화 잔액 필요)`;
+  if (el("premiumMyBalanceLabel")) el("premiumMyBalanceLabel").textContent = `내 ${sym} 잔액`;
+
+  // ── 관리자 패널: 준비금 입금 / 토큰 민팅 (현재 화면 통화 컨트랙트 기준) ──
+  if (el("depositAmountLabel")) el("depositAmountLabel").textContent = `입금 금액 (${sym})`;
+  if (el("depositAmountNote")) el("depositAmountNote").textContent =
+    `* 관리자 ${sym} 잔액에서 컨트랙트로 이전됩니다. approve가 자동 처리됩니다.`;
+  if (el("mintCardTitle")) el("mintCardTitle").textContent = `💵 ${sym} 관리자 민팅`;
+  if (el("mintAmountLabel")) el("mintAmountLabel").textContent = `민팅 금액 (${sym})`;
+  if (el("mintBtnText")) el("mintBtnText").textContent = `💵 ${sym} 민팅 (무제한)`;
+
+  // ── 블록체인 상태 탭 ──────────────────────────────────────
+  if (el("stateMyBalLabel")) el("stateMyBalLabel").textContent = `내 ${sym} 잔액`;
+  if (el("stateUsdcSupplyLabel")) el("stateUsdcSupplyLabel").textContent = `${sym} 총 발행량`;
 }
 
 // ── 통화 전환 ────────────────────────────────────────────────
@@ -1248,16 +1279,17 @@ async function refreshAll() {
 }
 
 async function refreshStats() {
-  if (!insCtx) return;
+  if (!getContractsForCcy(currencyMode)?.ctx) return;
   try {
-    // 관리자: 전체 계정 합산 / 일반 계정: 본인 데이터만 집계
-    const policyIds = await insCtx.getAllPolicyIds().catch(() => []);
-    let policies  = await Promise.all(policyIds.map(id => insCtx.getPolicy(id).catch(() => null)));
-    policies = policies.filter(Boolean);
+    // 두 통화 모두에서 수집 (기존 헬퍼 재사용) — 관리자: 전체 계정 합산 / 일반: 본인 데이터만
+    let policyRows = await fetchAllPoliciesBothCcy();   // [{p, ccy, decimals}]
+    let claimRows  = await fetchAllClaimsBothCcy();     // [{c, ov, ccy}]
+    let appRows    = await fetchAllApplicationsBothCcy(); // [{a, ccy}]
     if (!isOwner) {
-      policies = policies.filter(p => p.patient.toLowerCase() === userAddr?.toLowerCase());
+      policyRows = policyRows.filter(({ p }) => p.patient.toLowerCase() === userAddr?.toLowerCase());
+      claimRows  = claimRows.filter(({ c }) => c.patient.toLowerCase() === userAddr?.toLowerCase());
+      appRows    = appRows.filter(({ a }) => a.applicant.toLowerCase() === userAddr?.toLowerCase());
     }
-    const myPolicyIds = policies.map(p => p.id);
 
     // ── 계정별 라벨 문구 (관리자: 전체 합산 / 일반: 본인 합계) ──
     const labelPremiumsEl = el("labelStatPremiums");
@@ -1265,76 +1297,101 @@ async function refreshStats() {
     const labelClaimsEl = el("labelStatClaims");
     if (labelClaimsEl) labelClaimsEl.textContent = isOwner ? "💰 총 보험금 지급" : "💰 지급받은 보험금 합계";
 
-    // ── 보험료 수납 / 보험금 지급 ────────────────────────────
+    // 두 통화가 섞여 있을 때만 "(환산)" 표기 — 한쪽 통화만 배포된 데모에선 굳이 안 붙임
+    const hasMixedCcy = policyRows.some(r => r.ccy !== currencyMode) || claimRows.some(r => r.ccy !== currencyMode);
+    const convSuffix  = hasMixedCcy ? " (환산)" : "";
+
+    // ── 보험료 수납 / 보험금 지급 (두 통화 getStats() 합산 후 현재 화면 통화로 환산) ──
     if (isOwner) {
-      const stats = await insCtx.getStats();
-      el("statPremiums").textContent  = fmtUsdc(stats.premiumsCollected);
-      el("statClaims").textContent    = fmtUsdc(stats.claimsPaid);
-      el("statClaimsNum").textContent = stats.claimsCount.toString();
+      let totalPremiums = 0n, totalClaimsPaid = 0n, totalClaimsCount = 0;
+      for (const ccy of ['USDC', 'KRW']) {
+        const handle = getContractsForCcy(ccy);
+        if (!handle?.ctx) continue;
+        try {
+          const stats = await handle.ctx.getStats();
+          totalPremiums    += convertRawAmount(stats.premiumsCollected, ccy, currencyMode);
+          totalClaimsPaid  += convertRawAmount(stats.claimsPaid, ccy, currencyMode);
+          totalClaimsCount += Number(stats.claimsCount);
+        } catch (e) {
+          addLog("error", `[${ccy}] 통계 조회 실패`, e.message);
+        }
+      }
+      el("statPremiums").textContent  = fmtByCcy(totalPremiums, currencyMode) + convSuffix;
+      el("statClaims").textContent    = fmtByCcy(totalClaimsPaid, currencyMode) + convSuffix;
+      el("statClaimsNum").textContent = totalClaimsCount.toString();
     } else {
-      const totalPremiums = policies.reduce((sum, p) => sum + BigInt(p.totalPaid), 0n);
-      el("statPremiums").textContent = fmtUsdc(totalPremiums);
+      const totalPremiums = policyRows.reduce((sum, { p, ccy }) => sum + convertRawAmount(BigInt(p.totalPaid), ccy, currencyMode), 0n);
+      el("statPremiums").textContent = fmtByCcy(totalPremiums, currencyMode) + convSuffix;
     }
-    el("statBalance").textContent = fmtUsdc(await insCtx.getContractBalance());
+
+    // ── 보험사(컨트랙트) 잔액 — 두 통화 합산 후 환산 ──────────
+    let totalBalance = 0n;
+    for (const ccy of ['USDC', 'KRW']) {
+      const handle = getContractsForCcy(ccy);
+      if (!handle?.ctx) continue;
+      try { totalBalance += convertRawAmount(await handle.ctx.getContractBalance(), ccy, currencyMode); }
+      catch (e) { addLog("error", `[${ccy}] 컨트랙트 잔액 조회 실패`, e.message); }
+    }
+    el("statBalance").textContent = fmtByCcy(totalBalance, currencyMode) + convSuffix;
 
     // ── 준비금 잔액: 일반 계정은 본인 것만("내 준비금 잔액"), 관리자는 전체 합계("보험사 준비금 잔액") ───
-    if (reserveCtx && el("statReserveBalance")) {
-      el("statReserveBalance").textContent = fmtUsdc(await getViewerReserveBalance());
+    if (el("statReserveBalance")) {
+      el("statReserveBalance").textContent = fmtByCcy(await getViewerReserveBalanceBothCcy(), currencyMode) + convSuffix;
     }
 
-    // ── 보험증권: 전체 vs 활성 ────────────────────────────────
-    const activeCount = policies.filter(p => p.active).length;
+    // ── 보험증권: 전체 vs 활성 (두 통화 합산) ──────────────────
+    const activeCount = policyRows.filter(({ p }) => p.active).length;
     el("statPolicies").textContent      = activeCount.toString();
-    el("statPoliciesTotal").textContent = isOwner ? `전체 ${policies.length}건` : `내 증권 ${policies.length}건`;
+    el("statPoliciesTotal").textContent = isOwner ? `전체 ${policyRows.length}건` : `내 증권 ${policyRows.length}건`;
 
-    // ── 청구 ──────────────────────────────────────────────────
-    const claimIds = await insCtx.getAllClaimIds().catch(() => []);
-    let claims     = await Promise.all(claimIds.map(id => insCtx.getClaim(id).catch(() => null)));
-    claims = claims.filter(Boolean);
-    if (!isOwner) {
-      claims = claims.filter(c => c.patient.toLowerCase() === userAddr?.toLowerCase());
-    }
-    const pendingClaims = claims.filter(c => Number(c.status) === 0).length;
+    // ── 청구 (두 통화 합산) ────────────────────────────────────
+    const pendingClaims = claimRows.filter(({ c }) => Number(c.status) === 0).length;
     el("statClaimsPending").textContent = `대기 ${pendingClaims}건`;
     if (!isOwner) {
-      el("statClaimsNum").textContent = claims.length.toString();
-      const myClaimsPaid = claims.filter(c => Number(c.status) === 3).reduce((sum, c) => sum + BigInt(c.amount), 0n);
-      el("statClaims").textContent = fmtUsdc(myClaimsPaid);
+      el("statClaimsNum").textContent = claimRows.length.toString();
+      const myClaimsPaid = claimRows.reduce((sum, { c, ccy }) =>
+        Number(c.status) === 3 ? sum + convertRawAmount(BigInt(c.amount), ccy, currencyMode) : sum, 0n);
+      el("statClaims").textContent = fmtByCcy(myClaimsPaid, currencyMode) + convSuffix;
     }
 
-    // ── 청약 심사 현황 ────────────────────────────────────────
-    const appIds = await insCtx.getAllApplicationIds().catch(() => []);
-    let apps     = await Promise.all(appIds.map(id => insCtx.getApplication(id).catch(() => null)));
-    apps = apps.filter(Boolean);
-    if (!isOwner) {
-      apps = apps.filter(a => a.applicant.toLowerCase() === userAddr?.toLowerCase());
-    }
-    el("statAppPending").textContent  = apps.filter(a => Number(a.status) === 0).length.toString();
-    el("statAppApproved").textContent = apps.filter(a => Number(a.status) === 1).length.toString();
-    el("statAppRejected").textContent = apps.filter(a => Number(a.status) === 2).length.toString();
+    // ── 청약 심사 현황 (두 통화 합산) ───────────────────────────
+    el("statAppPending").textContent  = appRows.filter(({ a }) => Number(a.status) === 0).length.toString();
+    el("statAppApproved").textContent = appRows.filter(({ a }) => Number(a.status) === 1).length.toString();
+    el("statAppRejected").textContent = appRows.filter(({ a }) => Number(a.status) === 2).length.toString();
 
-    // ── 약관대출 현황 (본인/전체 증권 기준) ───────────────────
-    const loans = await Promise.all(
-      myPolicyIds.map(id => insCtx.getPolicyLoan(id).catch(() => null))
-    );
-    const activeLoans = loans.filter(l => l && l.active);
-    const totalLoanAmt = activeLoans.reduce((sum, l) => sum + BigInt(l.loanAmount), 0n);
+    // ── 약관대출 현황 (본인/전체 증권 기준, 두 통화 합산) ───────
+    const loanEntries = await Promise.all(policyRows.map(async ({ p, ccy }) => {
+      const handle = getContractsForCcy(ccy);
+      if (!handle?.ctx) return null;
+      const loan = await handle.ctx.getPolicyLoan(p.id).catch(() => null);
+      return loan ? { loan, ccy } : null;
+    }));
+    const activeLoans  = loanEntries.filter(e => e && e.loan.active);
+    const totalLoanAmt = activeLoans.reduce((sum, { loan, ccy }) => sum + convertRawAmount(BigInt(loan.loanAmount), ccy, currencyMode), 0n);
     el("statLoanCount").textContent  = activeLoans.length.toString();
     el("statLoanAmount").textContent = activeLoans.length > 0
-      ? `총 ${fmtUsdc(totalLoanAmt)}` : "없음";
+      ? `총 ${fmtByCcy(totalLoanAmt, currencyMode)}${convSuffix}` : "없음";
 
     // ── 만기환급 현황 (실제 지급액은 MaturityRefundPaid 이벤트에서 합산 —
     //    약관대출이 있었던 건은 원리금 차감 후 순액이 지급되고 현재 상태로는
-    //    복원 불가하므로, totalPaid×refundRate% gross 재계산 대신 이벤트 로그 사용) ─
-    const matured = policies.filter(p => p.maturityPaid);
-    let maturityEvents = await insCtx.queryFilter(insCtx.filters.MaturityRefundPaid()).catch(() => []);
-    if (!isOwner) {
-      maturityEvents = maturityEvents.filter(ev => ev.args.patient.toLowerCase() === userAddr?.toLowerCase());
+    //    복원 불가하므로, totalPaid×refundRate% gross 재계산 대신 이벤트 로그 사용,
+    //    두 통화 이벤트를 각각 조회해 현재 화면 통화로 환산 합산) ─
+    const matured = policyRows.filter(({ p }) => p.maturityPaid);
+    let totalMatAmt = 0n;
+    for (const ccy of ['USDC', 'KRW']) {
+      const handle = getContractsForCcy(ccy);
+      if (!handle?.ctx) continue;
+      try {
+        let events = await handle.ctx.queryFilter(handle.ctx.filters.MaturityRefundPaid()).catch(() => []);
+        if (!isOwner) events = events.filter(ev => ev.args.patient.toLowerCase() === userAddr?.toLowerCase());
+        totalMatAmt += events.reduce((sum, ev) => sum + convertRawAmount(BigInt(ev.args.refundAmount), ccy, currencyMode), 0n);
+      } catch (e) {
+        addLog("error", `[${ccy}] 만기환급 이벤트 조회 실패`, e.message);
+      }
     }
-    const totalMatAmt = maturityEvents.reduce((sum, ev) => sum + BigInt(ev.args.refundAmount), 0n);
     el("statMaturityCount").textContent  = matured.length.toString();
     el("statMaturityAmount").textContent = matured.length > 0
-      ? `총 ${fmtUsdc(totalMatAmt)}` : "없음";
+      ? `총 ${fmtByCcy(totalMatAmt, currencyMode)}${convSuffix}` : "없음";
 
   } catch (err) {
     addLog("error", "통계 조회 실패", parseError(err));
@@ -1352,6 +1409,28 @@ async function getViewerReserveBalance() {
   if (!userAddr) return 0n;
   const preview = await reserveCtx.previewBalance(userAddr).catch(() => ({ projectedPrincipal: 0n }));
   return preview.projectedPrincipal;
+}
+
+// refreshStats() 전용 — 두 통화 준비금계좌를 합쳐 현재 화면 통화로 환산한 합계를 반환
+async function getViewerReserveBalanceBothCcy() {
+  let total = 0n;
+  for (const ccy of ['USDC', 'KRW']) {
+    const handle = getReserveForCcy(ccy);
+    if (!handle?.ctx) continue;
+    try {
+      if (isOwner) {
+        const holders  = await handle.ctx.getAllHolders().catch(() => []);
+        const previews = await Promise.all(holders.map(a => handle.ctx.previewBalance(a).catch(() => ({ projectedPrincipal: 0n }))));
+        total += convertRawAmount(previews.reduce((s, p) => s + p.projectedPrincipal, 0n), ccy, currencyMode);
+      } else if (userAddr) {
+        const preview = await handle.ctx.previewBalance(userAddr).catch(() => ({ projectedPrincipal: 0n }));
+        total += convertRawAmount(preview.projectedPrincipal, ccy, currencyMode);
+      }
+    } catch (e) {
+      addLog("error", `[${ccy}] 준비금 잔액 조회 실패`, e.message);
+    }
+  }
+  return total;
 }
 
 async function refreshMyBalance() {
@@ -2230,8 +2309,10 @@ async function refreshBlockchainState() {
   if (!insCtx || !usdcCtx) return;
   try {
     addLog("call", "블록체인 상태 조회 중...");
-    const [stats, block, ownerAddr, totalSupply, myBal, networkInfo] = await Promise.all([
-      insCtx.getStats(),
+    // 블록/네트워크/컨트랙트 주소/내 지갑 잔액은 "지금 연결된(토글된) 컨트랙트" 고유
+    // 정보라 통화 통합 대상이 아님 — 반면 보험료수납/지급/증권수/청구수/손익은 다른
+    // 탭들과 마찬가지로 두 통화를 합쳐 현재 화면 통화로 환산해 보여줌.
+    const [block, ownerAddr, totalSupply, myBal, networkInfo] = await Promise.all([
       provider.getBlock("latest"),
       insCtx.owner(),
       usdcCtx.totalSupply(),
@@ -2239,28 +2320,45 @@ async function refreshBlockchainState() {
       provider.getNetwork()
     ]);
 
+    let totalContractBal = 0n, totalPremiums = 0n, totalPaid = 0n, totalPolicies = 0, totalClaims = 0;
+    for (const ccy of ['USDC', 'KRW']) {
+      const handle = getContractsForCcy(ccy);
+      if (!handle?.ctx) continue;
+      try {
+        const stats = await handle.ctx.getStats();
+        totalContractBal += convertRawAmount(stats.contractBalance, ccy, currencyMode);
+        totalPremiums     += convertRawAmount(stats.premiumsCollected, ccy, currencyMode);
+        totalPaid          += convertRawAmount(stats.claimsPaid, ccy, currencyMode);
+        totalPolicies      += Number(stats.policiesCount);
+        totalClaims         += Number(stats.claimsCount);
+      } catch (e) {
+        addLog("error", `[${ccy}] 통계 조회 실패`, e.message);
+      }
+    }
+    const convSuffix = ` (${currencyMode} 환산)`;
+
     el("stateBlockNum").textContent    = block.number.toLocaleString();
     el("stateNetwork").textContent     = networkInfo.name === "unknown" ? `Hardhat (${networkInfo.chainId})` : networkInfo.name;
     el("stateChainId").textContent     = networkInfo.chainId.toString();
     el("stateOwner").textContent       = shortAddr(ownerAddr);
     el("stateOwner").title             = ownerAddr;
-    el("stateUsdcSupply").textContent  = `${parseFloat(fmt(totalSupply)).toLocaleString("ko-KR")} USDC`;
-    el("stateContractBal").textContent = fmtUsdc(stats.contractBalance);
+    el("stateUsdcSupply").textContent  = `${parseFloat(fmt(totalSupply)).toLocaleString("ko-KR")} ${stableName()}`;
+    el("stateContractBal").textContent = fmtByCcy(totalContractBal, currencyMode) + convSuffix;
     el("stateMyBal").textContent       = fmtUsdc(myBal);
-    el("statePremiums").textContent    = fmtUsdc(stats.premiumsCollected);
-    el("statePaid").textContent        = fmtUsdc(stats.claimsPaid);
-    el("statePolicies2").textContent   = stats.policiesCount.toString();
-    el("stateClaims2").textContent     = stats.claimsCount.toString();
+    el("statePremiums").textContent    = fmtByCcy(totalPremiums, currencyMode) + convSuffix;
+    el("statePaid").textContent        = fmtByCcy(totalPaid, currencyMode) + convSuffix;
+    el("statePolicies2").textContent   = totalPolicies.toString();
+    el("stateClaims2").textContent     = totalClaims.toString();
     el("stateInsAddr").textContent     = shortAddr(insAddr);
     el("stateUsdcAddr").textContent    = shortAddr(usdcAddr);
     el("stateTimestamp").textContent   = new Date(Number(block.timestamp) * 1000).toLocaleString("ko-KR");
 
-    const profit = BigInt(stats.premiumsCollected) - BigInt(stats.claimsPaid);
-    el("stateProfit").textContent = fmtUsdc(profit < 0n ? 0n : profit);
+    const profit = totalPremiums - totalPaid;
+    el("stateProfit").textContent = fmtByCcy(profit < 0n ? 0n : profit, currencyMode) + convSuffix;
     el("stateProfit").className   = `kv-value ${profit >= 0n ? "green" : "red"}`;
 
     addLog("call", "블록체인 상태 조회 완료",
-      `블록 #${block.number} | 보험사잔액: ${fmtUsdc(stats.contractBalance)} | 내잔액: ${fmtUsdc(myBal)}`);
+      `블록 #${block.number} | 보험사잔액(USDC+KRW 환산): ${fmtByCcy(totalContractBal, currencyMode)} | 내잔액: ${fmtUsdc(myBal)}`);
   } catch (err) {
     addLog("error", "블록체인 상태 조회 실패", parseError(err));
   }
@@ -2721,8 +2819,11 @@ const DENTAL_COVERAGE_OPTIONS = [
   { id: "scaling",   label: "스케일링",   desc: "건강보험 적용 시 연 1회 한도",            coverageKrw: 100000,  premiumKrw: 1500 },
 ];
 
-// mock-provider.js(오라클 청구 검증)와 동일한 고정 환율 — 데모 전반에서 일관되게 사용
-const KRW_PER_USD = 1400;
+// USDC↔KRW 환산 환율 — scripts/deploy.js가 config.json에 기록한 krwPerUsd로 로드 시
+// 덮어써짐(tryLoadConfig 참고). mock-provider.js/oracle-service.js도 같은 config.json
+// 값을 읽으므로 세 곳이 따로 하드코딩해서 어긋나는 일이 없음. config.json 로드 전
+// 잠깐 쓰이거나 값이 없는 옛 배포본을 위한 기본값으로 1400을 폴백함.
+let KRW_PER_USD = 1400;
 
 // 라이나 상품 구조(연령대별 위험도 반영)를 참고한 나이 배율 — 실제 요율표가 아닌 참고 추정치
 function ageMultiplier(age) {
@@ -2877,21 +2978,28 @@ async function rejectApplicationAdmin() {
   );
 }
 
+// 두 통화 컨트랙트에서 청약 목록을 함께 가져와 {a, ccy} 형태로 합침.
+// refreshApplications()와 refreshStats() 둘 다 사용.
+async function fetchAllApplicationsBothCcy() {
+  let rows = [];
+  for (const ccy of ['USDC', 'KRW']) {
+    const handle = getContractsForCcy(ccy);
+    if (!handle?.ctx) continue;
+    try {
+      const ids  = await handle.ctx.getAllApplicationIds();
+      const apps = await Promise.all(ids.map(id => handle.ctx.getApplication(id)));
+      apps.forEach(a => rows.push({ a, ccy }));
+    } catch (e) {
+      addLog("error", `[${ccy}] 청약 목록 조회 실패`, e.message);
+    }
+  }
+  return rows;
+}
+
 async function refreshApplications() {
   addLog("call", "getAllApplicationIds() 조회 (USDC+KRW 통합)");
   try {
-    let rows = [];
-    for (const ccy of ['USDC', 'KRW']) {
-      const handle = getContractsForCcy(ccy);
-      if (!handle?.ctx) continue;
-      try {
-        const ids  = await handle.ctx.getAllApplicationIds();
-        const apps = await Promise.all(ids.map(id => handle.ctx.getApplication(id)));
-        apps.forEach(a => rows.push({ a, ccy }));
-      } catch (e) {
-        addLog("error", `[${ccy}] 청약 목록 조회 실패`, e.message);
-      }
-    }
+    let rows = await fetchAllApplicationsBothCcy();
 
     const tbody = el("appTableBody");
     if (!tbody) return;

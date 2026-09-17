@@ -250,6 +250,10 @@ async function main() {
     deployer:        deployer.address,
     deployedAt:      new Date().toISOString(),
     oracleAddress:   ORACLE_ADDRESS,
+    // USDC↔KRW 환산에 쓰는 고정 환율. frontend/app.js와 scripts/hospital-provider/
+    // mock-provider.js가 각자 하드코딩하던 걸 여기 하나로 모아, 두 곳이 따로 값을
+    // 바꿔서 어긋나는 일이 없도록 함 (두 곳 다 이 값이 없으면 1400으로 폴백).
+    krwPerUsd:       1400,
     contracts: {
       MockUSDC:              usdcAddress,
       DentalInsurance:       insuranceAddress,
