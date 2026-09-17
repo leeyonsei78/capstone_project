@@ -377,10 +377,10 @@
           <div class="table-wrap" style="max-height:280px;overflow-y:auto">
             <table>
               <thead>
-                <tr><th>증권</th><th>일시</th><th class="text-right">금액</th><th>방식</th><th class="text-right">누적</th></tr>
+                <tr><th>통화</th><th>증권</th><th>일시</th><th class="text-right">금액</th><th>방식</th><th class="text-right">누적</th></tr>
               </thead>
               <tbody id="premiumHistoryBody">
-                <tr><td colspan="5" class="text-center" style="color:var(--text-muted);padding:20px">증권을 연결하면 표시됩니다</td></tr>
+                <tr><td colspan="6" class="text-center" style="color:var(--text-muted);padding:20px">증권을 연결하면 표시됩니다</td></tr>
               </tbody>
             </table>
           </div>
@@ -786,6 +786,7 @@
             <table>
               <thead>
                 <tr>
+                  <th>통화</th>
                   <th>증권 ID</th>
                   <th>피보험자</th>
                   <th class="text-right">월 보험료</th>
@@ -795,7 +796,7 @@
                 </tr>
               </thead>
               <tbody id="autopayScheduleBody">
-                <tr><td colspan="6" class="text-center" style="color:var(--text-muted);padding:30px">컨트랙트를 연결하면 표시됩니다</td></tr>
+                <tr><td colspan="7" class="text-center" style="color:var(--text-muted);padding:30px">컨트랙트를 연결하면 표시됩니다</td></tr>
               </tbody>
             </table>
           </div>
@@ -906,6 +907,7 @@
           <thead>
             <tr>
               <th>증권ID</th>
+              <th>통화</th>
               <th>피보험자</th>
               <th class="text-right">납입 합계</th>
               <th class="text-right">환급율</th>
@@ -916,7 +918,7 @@
             </tr>
           </thead>
           <tbody id="maturityTableBody">
-            <tr><td colspan="8" class="text-center" style="color:var(--text-muted);padding:30px">컨트랙트를 연결하면 데이터가 표시됩니다</td></tr>
+            <tr><td colspan="9" class="text-center" style="color:var(--text-muted);padding:30px">컨트랙트를 연결하면 데이터가 표시됩니다</td></tr>
           </tbody>
         </table>
       </div>
@@ -1065,6 +1067,7 @@
           <thead>
             <tr>
               <th>청약ID</th>
+              <th>통화</th>
               <th>청약자</th>
               <th>이름</th>
               <th>나이</th>
@@ -1080,7 +1083,7 @@
             </tr>
           </thead>
           <tbody id="appTableBody">
-            <tr><td colspan="12" class="text-center" style="color:var(--text-muted);padding:30px">컨트랙트를 연결하면 데이터가 표시됩니다</td></tr>
+            <tr><td colspan="14" class="text-center" style="color:var(--text-muted);padding:30px">컨트랙트를 연결하면 데이터가 표시됩니다</td></tr>
           </tbody>
         </table>
       </div>
@@ -1198,6 +1201,7 @@
             <table>
               <thead>
                 <tr>
+                  <th>통화</th>
                   <th>증권ID</th>
                   <th>이름</th>
                   <th class="text-right">납입액</th>
@@ -1207,7 +1211,7 @@
                 </tr>
               </thead>
               <tbody id="loanPolicyTable">
-                <tr><td colspan="6" class="text-center" style="color:var(--text-muted);padding:20px">데이터 없음</td></tr>
+                <tr><td colspan="7" class="text-center" style="color:var(--text-muted);padding:20px">데이터 없음</td></tr>
               </tbody>
             </table>
           </div>
@@ -1242,6 +1246,8 @@
             </div>
           </div>
 
+          <div id="reserveOtherCcyBox" style="display:none;background:var(--bg-tertiary);border-radius:6px;padding:10px 12px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)"></div>
+
           <div class="form-group">
             <label id="reserveDepositLabel">송금 금액 (USDC)</label>
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">송금 가능 금액(내 지갑): <strong id="reserveMyWalletBal" style="color:var(--text-secondary)">-</strong></div>
@@ -1271,6 +1277,7 @@
             <table>
               <thead>
                 <tr>
+                  <th>통화</th>
                   <th>고객</th>
                   <th class="text-right">원금(확정)</th>
                   <th class="text-right">예상잔액(이자포함)</th>
@@ -1280,7 +1287,7 @@
                 </tr>
               </thead>
               <tbody id="reserveAdminTable">
-                <tr><td colspan="6" class="text-center" style="color:var(--text-muted);padding:20px">데이터 없음</td></tr>
+                <tr><td colspan="7" class="text-center" style="color:var(--text-muted);padding:20px">데이터 없음</td></tr>
               </tbody>
             </table>
           </div>
@@ -1295,6 +1302,7 @@
             <table>
               <thead>
                 <tr>
+                  <th>통화</th>
                   <th>구분</th>
                   <th id="reserveHistoryPatientCol" style="display:none">고객</th>
                   <th class="text-right">금액</th>
@@ -1303,7 +1311,7 @@
                 </tr>
               </thead>
               <tbody id="reserveHistoryBody">
-                <tr><td colspan="5" class="text-center" style="color:var(--text-muted);padding:20px">내역 없음</td></tr>
+                <tr><td colspan="6" class="text-center" style="color:var(--text-muted);padding:20px">내역 없음</td></tr>
               </tbody>
             </table>
           </div>
