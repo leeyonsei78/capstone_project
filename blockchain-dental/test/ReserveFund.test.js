@@ -125,6 +125,38 @@ describe("ReserveFund", function () {
     });
   });
 
+  describe("파우셋 1회 상한(10,000 USDC)을 넘는 이자 처리", function () {
+    it("오래 방치돼 누적 이자가 파우셋 상한을 넘어도 청크 처리로 revert 없이 정상 적립된다", async function () {
+      // MockUSDC.faucet()은 1회 10,000 USDC(=10_000_000_000 raw)가 상한이라
+      // 큰 원금 조달 자체도 여러 번에 나눠 받아야 한다.
+      const PRINCIPAL = 100_000_000_000n; // 100,000 USDC
+      const FAUCET_CAP = 10_000_000_000n;
+      let remaining = PRINCIPAL;
+      while (remaining > 0n) {
+        const take = remaining > FAUCET_CAP ? FAUCET_CAP : remaining;
+        await ctx.token.connect(ctx.patient).faucet(take);
+        remaining -= take;
+      }
+
+      await ctx.token.connect(ctx.patient).approve(ctx.reserveAddr, PRINCIPAL);
+      await ctx.reserve.connect(ctx.patient).depositReserve(PRINCIPAL);
+
+      // 3년(1095일) 방치 — 연 5% 복리로 누적 이자가 10,000 USDC 상한을 훌쩍 넘김
+      await increaseTime(1095 * 24 * 60 * 60);
+
+      const [projected] = await ctx.reserve.previewBalance(ctx.patient.address);
+      const expectedInterest = compound(PRINCIPAL, 1095) - PRINCIPAL;
+      expect(expectedInterest).to.be.gt(FAUCET_CAP); // 이 테스트가 실제로 상한을 넘기는 시나리오인지 확인
+
+      // 예전 버그였다면 아래 withdrawReserve 호출(_accrue 트리거)이 파우셋 상한 초과로 revert됐음
+      await expect(ctx.reserve.connect(ctx.patient).withdrawReserve(1n)).to.not.be.reverted;
+
+      const acc = await ctx.reserve.getAccount(ctx.patient.address);
+      expect(acc.principal).to.equal(compound(PRINCIPAL, 1095) - 1n);
+      expect(acc.totalInterestEarned).to.be.gt(FAUCET_CAP);
+    });
+  });
+
   describe("withdrawReserve", function () {
     it("계좌가 없으면 revert된다", async function () {
       await expect(ctx.reserve.connect(ctx.patient).withdrawReserve(1n))

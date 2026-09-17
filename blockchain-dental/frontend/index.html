@@ -302,7 +302,13 @@
     <div class="card">
       <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
         <span>📋 보험증권 목록</span>
-        <button class="btn btn-ghost btn-sm" onclick="refreshPolicies()">🔄 새로고침</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="exportPolicyTableCsv()">⬇️ CSV 내보내기</button>
+          <button class="btn btn-ghost btn-sm" onclick="refreshPolicies()">🔄 새로고침</button>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <input type="text" id="policySearchInput" class="form-control" placeholder="🔍 ID·이름·지갑주소로 검색" oninput="filterPolicyTable()">
       </div>
       <div class="table-wrap">
         <table>
@@ -494,7 +500,13 @@
     <div class="card">
       <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
         <span>🦷 보험금 청구 목록</span>
-        <button class="btn btn-ghost btn-sm" onclick="refreshAll()">🔄 새로고침</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="exportClaimTableCsv()">⬇️ CSV 내보내기</button>
+          <button class="btn btn-ghost btn-sm" onclick="refreshAll()">🔄 새로고침</button>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <input type="text" id="claimSearchInput" class="form-control" placeholder="🔍 ID·증권ID·치료코드·상태로 검색" oninput="filterClaimTable()">
       </div>
       <div class="table-wrap">
         <table>
@@ -1080,7 +1092,13 @@
     <div class="card">
       <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
         <span>📋 청약 목록</span>
-        <button class="btn btn-ghost btn-sm" onclick="refreshApplications()">🔄 새로고침</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="exportAppTableCsv()">⬇️ CSV 내보내기</button>
+          <button class="btn btn-ghost btn-sm" onclick="refreshApplications()">🔄 새로고침</button>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <input type="text" id="appSearchInput" class="form-control" placeholder="🔍 ID·이름·지갑주소·상태로 검색" oninput="filterAppTable()">
       </div>
       <div class="table-wrap">
         <table>
@@ -1288,7 +1306,10 @@
         </div>
 
         <div id="cardReserveAdmin" class="card hidden">
-          <div class="card-title">🏛️ 전체 고객 준비금 현황 (관리자)</div>
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+            <span>🏛️ 전체 고객 준비금 현황 (관리자)</span>
+            <button class="btn btn-ghost btn-sm" onclick="exportReserveTableCsv()">⬇️ CSV 내보내기</button>
+          </div>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:13px;margin-bottom:12px">
             <div><span style="color:var(--text-muted)">고객 수:</span> <strong id="reserveAdminHolderCount">-</strong></div>
             <div><span style="color:var(--text-muted)">총 준비금(이자포함):</span> <strong id="reserveAdminTotal" style="color:var(--accent-green)">-</strong></div>

@@ -164,6 +164,13 @@ function lookupCertEmail(address) {
   try { return localStorage.getItem(certEmailStorageKey(address)) || null; } catch (_) { return null; }
 }
 
+// type="email" input의 브라우저 기본 검증만으로는 프로그래밍적으로 우회되거나
+// 느슨할 수 있어, 저장/발송 전에 한 번 더 형식을 확인한다 (완벽한 이메일 검증은
+// 불가능하므로 명백히 잘못된 형태만 걸러내는 실용적 수준의 정규식).
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 // 증권 발급(PolicyCreated) 시점에 호출 — 이 지갑 주소로 등록된 이메일이 있으면
 // n8n Webhook으로 {email, policyId, patientName, currency, certFileName, certUrl}을 push.
 // certificate-service.js가 만드는 파일명 규칙(scripts/certificate-service.js의
@@ -1682,36 +1689,88 @@ async function fetchAllPoliciesBothCcy() {
   return lists.flat();
 }
 
+// ── 검색/필터/CSV 내보내기 공용 헬퍼 ──────────────────────────
+// 테이블마다 마지막으로 조회한(소유자 필터까지 적용된) 원본 행을 캐시해두고,
+// 검색어 입력 시 재조회 없이 이 캐시만 다시 필터링해서 그려준다.
+function tableSearchMatch(term, fields) {
+  if (!term) return true;
+  const t = term.toLowerCase();
+  return fields.some(f => String(f ?? "").toLowerCase().includes(t));
+}
+
+// CSV 문자열 이스케이프 + 다운로드 트리거 (엑셀 한글 깨짐 방지용 BOM 포함)
+function exportRowsToCsv(filename, headers, rows) {
+  const esc = (v) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [headers.map(esc).join(",")].concat(rows.map(r => r.map(esc).join(",")));
+  const csv = "﻿" + lines.join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+  addLog("info", `${filename} 내보내기 완료 (${rows.length}건)`);
+}
+
+let _policyRowsCache = [];
+
+function renderPolicyRows(rows) {
+  const tbody = el("policyTableBody");
+  if (!tbody) return;
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9" class="text-center" style="color:var(--text-muted);padding:30px">${_policyRowsCache.length === 0 ? "보험증권이 없습니다" : "검색 결과가 없습니다"}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(({ p, ccy }) => `
+    <tr>
+      <td><strong>#${p.id}</strong></td>
+      <td><span class="badge" style="background:${ccy === 'KRW' ? 'rgba(255,159,10,0.15)' : 'rgba(47,129,247,0.15)'};color:${ccy === 'KRW' ? 'var(--accent-yellow)' : 'var(--accent-blue)'}">${ccy}</span></td>
+      <td>${p.patientName}</td>
+      <td class="addr-short" onclick="copyToClip('${p.patient}')" title="${p.patient}">${shortAddr(p.patient)}</td>
+      <td class="text-right" style="color:var(--accent-blue)">${fmtByCcy(p.monthlyPremium, ccy)}<div style="font-size:10px;color:var(--text-muted)">${convertedAmountLabel(p.monthlyPremium, ccy)}</div></td>
+      <td class="text-right" style="color:var(--accent-cyan)">${fmtByCcy(p.coverageLimit, ccy)}<div style="font-size:10px;color:var(--text-muted)">${convertedAmountLabel(p.coverageLimit, ccy)}</div></td>
+      <td class="text-right" style="color:var(--accent-green)">${fmtByCcy(p.totalPaid, ccy)}</td>
+      <td>${tsToDate(p.lastPaymentTime)}</td>
+      <td>
+        <span class="badge ${p.active ? "badge-active" : "badge-inactive"}">${p.active ? "활성" : "비활성"}</span>
+        ${isOwner && p.active ? `<button class="btn btn-danger btn-sm" onclick="deactivatePolicy('${compositeId(ccy, p.id)}')" style="margin-left:6px">비활성화</button>` : ""}
+      </td>
+    </tr>`).join("");
+}
+
+function filterPolicyTable() {
+  const term = el("policySearchInput")?.value.trim() || "";
+  const filtered = _policyRowsCache.filter(({ p, ccy }) =>
+    tableSearchMatch(term, [p.id, ccy, p.patientName, p.patient])
+  );
+  renderPolicyRows(filtered);
+}
+
+function exportPolicyTableCsv() {
+  const rows = _policyRowsCache.map(({ p, ccy }) => [
+    p.id.toString(), ccy, p.patientName, p.patient,
+    fmtByCcy(p.monthlyPremium, ccy), fmtByCcy(p.coverageLimit, ccy), fmtByCcy(p.totalPaid, ccy),
+    tsToDate(p.lastPaymentTime), p.active ? "활성" : "비활성",
+  ]);
+  exportRowsToCsv(`보험증권_목록_${new Date().toISOString().slice(0,10)}.csv`,
+    ["ID", "통화", "피보험자", "지갑주소", "월보험료", "보장한도", "누적납입", "최근납입", "상태"], rows);
+}
+
 async function refreshPolicies() {
   if (!insCtx) return;
   try {
     let rows = await fetchAllPoliciesBothCcy();
     addLog("call", `보험증권 목록 조회 (USDC+KRW 통합): ${rows.length}건`);
-    const tbody = el("policyTableBody");
-    if (!tbody) return;
+    if (!el("policyTableBody")) return;
     if (!isOwner) {
       rows = rows.filter(({ p }) => p.patient.toLowerCase() === userAddr?.toLowerCase());
     }
-    if (rows.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="9" class="text-center" style="color:var(--text-muted);padding:30px">보험증권이 없습니다</td></tr>`;
-      updateActivePolicySelects([]);
-      return;
-    }
-    tbody.innerHTML = rows.map(({ p, ccy }) => `
-      <tr>
-        <td><strong>#${p.id}</strong></td>
-        <td><span class="badge" style="background:${ccy === 'KRW' ? 'rgba(255,159,10,0.15)' : 'rgba(47,129,247,0.15)'};color:${ccy === 'KRW' ? 'var(--accent-yellow)' : 'var(--accent-blue)'}">${ccy}</span></td>
-        <td>${p.patientName}</td>
-        <td class="addr-short" onclick="copyToClip('${p.patient}')" title="${p.patient}">${shortAddr(p.patient)}</td>
-        <td class="text-right" style="color:var(--accent-blue)">${fmtByCcy(p.monthlyPremium, ccy)}<div style="font-size:10px;color:var(--text-muted)">${convertedAmountLabel(p.monthlyPremium, ccy)}</div></td>
-        <td class="text-right" style="color:var(--accent-cyan)">${fmtByCcy(p.coverageLimit, ccy)}<div style="font-size:10px;color:var(--text-muted)">${convertedAmountLabel(p.coverageLimit, ccy)}</div></td>
-        <td class="text-right" style="color:var(--accent-green)">${fmtByCcy(p.totalPaid, ccy)}</td>
-        <td>${tsToDate(p.lastPaymentTime)}</td>
-        <td>
-          <span class="badge ${p.active ? "badge-active" : "badge-inactive"}">${p.active ? "활성" : "비활성"}</span>
-          ${isOwner && p.active ? `<button class="btn btn-danger btn-sm" onclick="deactivatePolicy('${compositeId(ccy, p.id)}')" style="margin-left:6px">비활성화</button>` : ""}
-        </td>
-      </tr>`).join("");
+    _policyRowsCache = rows;
+    filterPolicyTable();
     // 보험금청구/보험료납입/자동납부/약관대출/만기환급 5개 탭 모두 두 통화를 합쳐서 선택 가능하게 함
     updateActivePolicySelects(rows);
   } catch (err) {
@@ -2053,50 +2112,76 @@ async function fetchAllClaimsBothCcy() {
   return lists.flat();
 }
 
+let _claimRowsCache = [];
+
+function renderClaimRows(rows) {
+  const tbody = el("claimTableBody");
+  if (!tbody) return;
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="10" class="text-center" style="color:var(--text-muted);padding:30px">${_claimRowsCache.length === 0 ? "청구 내역이 없습니다" : "검색 결과가 없습니다"}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(({ c, ov, ccy }) => {
+    const statusIdx = Number(c.status);
+    const isMine    = c.patient.toLowerCase() === userAddr?.toLowerCase();
+    const isOracle  = ov && ov.exists;
+    const cid       = compositeId(ccy, c.id);
+    const oracleBadge = isOracle
+      ? `<span style="font-size:10px;background:${ov.approved ? "rgba(35,134,54,0.15)" : "rgba(218,54,51,0.15)"};color:${ov.approved ? "var(--accent-green)" : "var(--accent-red)"};padding:1px 5px;border-radius:3px;margin-left:4px" title="오라클 검증: ${ov.verificationCode}&#10;병원: ${ov.hospitalName}">🏥 ${ov.approved ? "오라클승인" : "오라클거절"}</span>`
+      : "";
+    return `
+    <tr ${isMine ? 'style="background:rgba(47,129,247,0.04)"' : ""}>
+      <td><strong>#${c.id}</strong></td>
+      <td><span class="badge" style="background:${ccy === 'KRW' ? 'rgba(255,159,10,0.15)' : 'rgba(47,129,247,0.15)'};color:${ccy === 'KRW' ? 'var(--accent-yellow)' : 'var(--accent-blue)'}">${ccy}</span></td>
+      <td>#${c.policyId}</td>
+      <td class="addr-short" title="${c.patient}">${shortAddr(c.patient)} ${isMine ? '<span style="color:var(--accent-blue);font-size:10px">(나)</span>' : ""}</td>
+      <td class="text-right" style="color:var(--accent-yellow)">${fmtByCcy(c.amount, ccy)}<div style="font-size:10px;color:var(--text-muted)">${convertedAmountLabel(c.amount, ccy)}</div></td>
+      <td><code style="font-size:11px">${c.treatmentCode}</code></td>
+      <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.description}">${c.description || "-"}</td>
+      <td><span class="badge ${CLAIM_STATUS_CLASS[statusIdx]}">${CLAIM_STATUS[statusIdx]}</span>${oracleBadge}</td>
+      <td style="font-size:11px;color:var(--text-muted)">${tsToDate(c.submittedAt)}</td>
+      <td>
+        ${isOwner && statusIdx === 0 ? `
+          <button class="btn btn-success btn-sm" onclick="approveClaim('${cid}')">승인</button>
+          <button class="btn btn-danger btn-sm" onclick="rejectClaimPrompt('${cid}')" style="margin-left:4px">거절</button>` : ""}
+        ${isOwner && statusIdx === 1 ? `
+          <button class="btn btn-primary btn-sm" onclick="payClaim('${cid}')">💰 지급</button>` : ""}
+        ${statusIdx === 2 && c.rejectReason ? `<span style="font-size:11px;color:var(--accent-red)" title="${c.rejectReason}">사유있음</span>` : ""}
+        ${isOracle ? `<button class="btn btn-sm" style="font-size:10px;background:rgba(130,80,255,0.15);color:#a78bfa;margin-left:2px" onclick="showOracleDetail('${cid}')">상세</button>` : ""}
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+function filterClaimTable() {
+  const term = el("claimSearchInput")?.value.trim() || "";
+  const filtered = _claimRowsCache.filter(({ c, ccy }) =>
+    tableSearchMatch(term, [c.id, ccy, c.policyId, c.patient, c.treatmentCode, c.description, CLAIM_STATUS[Number(c.status)]])
+  );
+  renderClaimRows(filtered);
+}
+
+function exportClaimTableCsv() {
+  const rows = _claimRowsCache.map(({ c, ccy }) => [
+    c.id.toString(), ccy, c.policyId.toString(), c.patient,
+    fmtByCcy(c.amount, ccy), c.treatmentCode, c.description || "",
+    CLAIM_STATUS[Number(c.status)], tsToDate(c.submittedAt), c.rejectReason || "",
+  ]);
+  exportRowsToCsv(`보험금청구_목록_${new Date().toISOString().slice(0,10)}.csv`,
+    ["청구ID", "통화", "증권ID", "청구자", "청구금액", "치료코드", "설명", "상태", "청구일시", "거절사유"], rows);
+}
+
 async function refreshClaims() {
   if (!insCtx) return;
   try {
     let rows = await fetchAllClaimsBothCcy();
     addLog("call", `청구 목록 조회 (USDC+KRW 통합): ${rows.length}건`);
-    const tbody = el("claimTableBody");
-    if (!tbody) return;
+    if (!el("claimTableBody")) return;
     if (!isOwner) {
       rows = rows.filter(({ c }) => c.patient.toLowerCase() === userAddr?.toLowerCase());
     }
-    if (rows.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="10" class="text-center" style="color:var(--text-muted);padding:30px">청구 내역이 없습니다</td></tr>`;
-      return;
-    }
-    tbody.innerHTML = rows.map(({ c, ov, ccy }) => {
-      const statusIdx = Number(c.status);
-      const isMine    = c.patient.toLowerCase() === userAddr?.toLowerCase();
-      const isOracle  = ov && ov.exists;
-      const cid       = compositeId(ccy, c.id);
-      const oracleBadge = isOracle
-        ? `<span style="font-size:10px;background:${ov.approved ? "rgba(35,134,54,0.15)" : "rgba(218,54,51,0.15)"};color:${ov.approved ? "var(--accent-green)" : "var(--accent-red)"};padding:1px 5px;border-radius:3px;margin-left:4px" title="오라클 검증: ${ov.verificationCode}&#10;병원: ${ov.hospitalName}">🏥 ${ov.approved ? "오라클승인" : "오라클거절"}</span>`
-        : "";
-      return `
-      <tr ${isMine ? 'style="background:rgba(47,129,247,0.04)"' : ""}>
-        <td><strong>#${c.id}</strong></td>
-        <td><span class="badge" style="background:${ccy === 'KRW' ? 'rgba(255,159,10,0.15)' : 'rgba(47,129,247,0.15)'};color:${ccy === 'KRW' ? 'var(--accent-yellow)' : 'var(--accent-blue)'}">${ccy}</span></td>
-        <td>#${c.policyId}</td>
-        <td class="addr-short" title="${c.patient}">${shortAddr(c.patient)} ${isMine ? '<span style="color:var(--accent-blue);font-size:10px">(나)</span>' : ""}</td>
-        <td class="text-right" style="color:var(--accent-yellow)">${fmtByCcy(c.amount, ccy)}<div style="font-size:10px;color:var(--text-muted)">${convertedAmountLabel(c.amount, ccy)}</div></td>
-        <td><code style="font-size:11px">${c.treatmentCode}</code></td>
-        <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.description}">${c.description || "-"}</td>
-        <td><span class="badge ${CLAIM_STATUS_CLASS[statusIdx]}">${CLAIM_STATUS[statusIdx]}</span>${oracleBadge}</td>
-        <td style="font-size:11px;color:var(--text-muted)">${tsToDate(c.submittedAt)}</td>
-        <td>
-          ${isOwner && statusIdx === 0 ? `
-            <button class="btn btn-success btn-sm" onclick="approveClaim('${cid}')">승인</button>
-            <button class="btn btn-danger btn-sm" onclick="rejectClaimPrompt('${cid}')" style="margin-left:4px">거절</button>` : ""}
-          ${isOwner && statusIdx === 1 ? `
-            <button class="btn btn-primary btn-sm" onclick="payClaim('${cid}')">💰 지급</button>` : ""}
-          ${statusIdx === 2 && c.rejectReason ? `<span style="font-size:11px;color:var(--accent-red)" title="${c.rejectReason}">사유있음</span>` : ""}
-          ${isOracle ? `<button class="btn btn-sm" style="font-size:10px;background:rgba(130,80,255,0.15);color:#a78bfa;margin-left:2px" onclick="showOracleDetail('${cid}')">상세</button>` : ""}
-        </td>
-      </tr>`;
-    }).join("");
+    _claimRowsCache = rows;
+    filterClaimTable();
   } catch (err) {
     addLog("error", "청구 목록 조회 실패", parseError(err));
   }
@@ -3188,6 +3273,10 @@ async function submitApplication() {
     .map(opt => opt.label);
   const coverageCount = selectedLabels.length;
 
+  if (email && !isValidEmail(email)) {
+    showToast("이메일 형식이 올바르지 않습니다. 확인 후 다시 입력하거나 비워두세요.", "warning");
+    return;
+  }
   if (email) rememberCertEmail(userAddr, email);
 
   addLog("info", "청약 입력값",
@@ -3260,42 +3349,68 @@ async function fetchAllApplicationsBothCcy() {
   return rows;
 }
 
+let _appRowsCache = [];
+
+function renderAppRows(rows) {
+  const tbody = el("appTableBody");
+  if (!tbody) return;
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="14" class="text-center" style="color:var(--text-muted);padding:30px">${_appRowsCache.length === 0 ? "청약 내역이 없습니다" : "검색 결과가 없습니다"}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(({ a, ccy }) => {
+    const statusIdx = Number(a.status);
+    const riskColor = a.riskScore >= 60 ? "var(--accent-red)" : a.riskScore >= 30 ? "var(--accent-yellow)" : "var(--accent-green)";
+    return `<tr>
+      <td><strong>#${a.id}</strong></td>
+      <td><span class="badge" style="font-size:10px;background:${ccy === 'KRW' ? 'rgba(255,159,10,0.15)' : 'rgba(47,129,247,0.15)'};color:${ccy === 'KRW' ? 'var(--accent-yellow)' : 'var(--accent-blue)'}">${ccy}</span></td>
+      <td><code style="font-size:10px">${shortAddr(a.applicant)}</code></td>
+      <td>${a.applicantName}</td>
+      <td>${a.age}세</td>
+      <td class="text-right">${fmtByCcy(a.monthlyPremium, ccy)}</td>
+      <td class="text-right">${fmtByCcy(a.coverageLimit, ccy)}</td>
+      <td class="text-center">${a.maturityDays}일</td>
+      <td class="text-center">${a.coverageCount}개</td>
+      <td class="text-center"><span style="color:${riskColor};font-weight:600">${a.riskScore}점</span></td>
+      <td><span class="badge ${APP_STATUS_CLASS[statusIdx]}">${APP_STATUS[statusIdx]}</span></td>
+      <td>${a.policyId > 0n ? `<strong>#${a.policyId}</strong>` : "-"}</td>
+      <td style="font-size:11px">${tsToDate(a.submittedAt)}</td>
+      <td style="font-size:11px;color:var(--accent-red)">${a.rejectReason || "-"}</td>
+    </tr>`;
+  }).join("");
+}
+
+function filterAppTable() {
+  const term = el("appSearchInput")?.value.trim() || "";
+  const filtered = _appRowsCache.filter(({ a, ccy }) =>
+    tableSearchMatch(term, [a.id, ccy, a.applicant, a.applicantName, APP_STATUS[Number(a.status)], a.rejectReason])
+  );
+  renderAppRows(filtered);
+}
+
+function exportAppTableCsv() {
+  const rows = _appRowsCache.map(({ a, ccy }) => [
+    a.id.toString(), ccy, a.applicant, a.applicantName, a.age.toString(),
+    fmtByCcy(a.monthlyPremium, ccy), fmtByCcy(a.coverageLimit, ccy), a.maturityDays.toString(),
+    a.coverageCount.toString(), a.riskScore.toString(), APP_STATUS[Number(a.status)],
+    a.policyId > 0n ? a.policyId.toString() : "", tsToDate(a.submittedAt), a.rejectReason || "",
+  ]);
+  exportRowsToCsv(`청약_목록_${new Date().toISOString().slice(0,10)}.csv`,
+    ["청약ID", "통화", "청약자주소", "이름", "나이", "월보험료", "보장한도", "만기(일)", "담보개수", "위험점수", "상태", "증권ID", "청약일", "거절사유"], rows);
+}
+
 async function refreshApplications() {
   addLog("call", "getAllApplicationIds() 조회 (USDC+KRW 통합)");
   try {
     let rows = await fetchAllApplicationsBothCcy();
-
-    const tbody = el("appTableBody");
-    if (!tbody) return;
+    if (!el("appTableBody")) return;
 
     if (!isOwner) {
       rows = rows.filter(({ a }) => a.applicant.toLowerCase() === userAddr?.toLowerCase());
     }
-    if (rows.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="14" class="text-center" style="color:var(--text-muted);padding:30px">청약 내역이 없습니다</td></tr>`;
-      return;
-    }
     rows.sort((x, y) => Number(y.a.submittedAt) - Number(x.a.submittedAt));
-    tbody.innerHTML = rows.map(({ a, ccy }) => {
-      const statusIdx = Number(a.status);
-      const riskColor = a.riskScore >= 60 ? "var(--accent-red)" : a.riskScore >= 30 ? "var(--accent-yellow)" : "var(--accent-green)";
-      return `<tr>
-        <td><strong>#${a.id}</strong></td>
-        <td><span class="badge" style="font-size:10px;background:${ccy === 'KRW' ? 'rgba(255,159,10,0.15)' : 'rgba(47,129,247,0.15)'};color:${ccy === 'KRW' ? 'var(--accent-yellow)' : 'var(--accent-blue)'}">${ccy}</span></td>
-        <td><code style="font-size:10px">${shortAddr(a.applicant)}</code></td>
-        <td>${a.applicantName}</td>
-        <td>${a.age}세</td>
-        <td class="text-right">${fmtByCcy(a.monthlyPremium, ccy)}</td>
-        <td class="text-right">${fmtByCcy(a.coverageLimit, ccy)}</td>
-        <td class="text-center">${a.maturityDays}일</td>
-        <td class="text-center">${a.coverageCount}개</td>
-        <td class="text-center"><span style="color:${riskColor};font-weight:600">${a.riskScore}점</span></td>
-        <td><span class="badge ${APP_STATUS_CLASS[statusIdx]}">${APP_STATUS[statusIdx]}</span></td>
-        <td>${a.policyId > 0n ? `<strong>#${a.policyId}</strong>` : "-"}</td>
-        <td style="font-size:11px">${tsToDate(a.submittedAt)}</td>
-        <td style="font-size:11px;color:var(--accent-red)">${a.rejectReason || "-"}</td>
-      </tr>`;
-    }).join("");
+    _appRowsCache = rows;
+    filterAppTable();
 
     addLog("success", `청약 목록 조회 완료 (${rows.length}건)`);
   } catch (err) {
@@ -3644,6 +3759,22 @@ async function withdrawReserve() {
   );
 }
 
+let _reserveAdminRowsCache = [];
+
+function exportReserveTableCsv() {
+  const rows = _reserveAdminRowsCache.map(r => {
+    const info = getAccountInfo(r.addr);
+    return [
+      r.ccy, info ? info.name : r.addr, r.addr,
+      fmtByCcy(r.acc.principal, r.ccy), fmtByCcy(r.preview.projectedPrincipal, r.ccy),
+      fmtByCcy(r.acc.totalInterestEarned + r.preview.pendingInterest, r.ccy),
+      fmtByCcy(r.acc.totalDeposited, r.ccy), fmtByCcy(r.acc.totalWithdrawn, r.ccy),
+    ];
+  });
+  exportRowsToCsv(`준비금계좌_현황_${new Date().toISOString().slice(0,10)}.csv`,
+    ["통화", "고객", "지갑주소", "원금(확정)", "예상잔액(이자포함)", "누적이자", "누적송금", "누적인출"], rows);
+}
+
 async function refreshReserve() {
   try {
     // ── 내 계좌 현황 (일반 계정) — 현재 토글된 통화 기준 ────────
@@ -3705,6 +3836,8 @@ async function refreshReserve() {
           addLog("error", `[${ccy}] 준비금 현황 조회 실패`, e.message);
         }
       }
+
+      _reserveAdminRowsCache = rows;
 
       // 합계는 현재 화면 통화로 환산해 하나의 숫자로 보여줌
       const totalProjected = rows.reduce((s, r) => s + convertRawAmount(r.preview.projectedPrincipal, r.ccy, currencyMode), 0n);

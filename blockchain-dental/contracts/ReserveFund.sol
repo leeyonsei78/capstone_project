@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -24,6 +25,15 @@ contract ReserveFund is Ownable, ReentrancyGuard {
     uint256 public constant BPS_DENOM       = 10000;
     uint256 public constant DAYS_PER_YEAR   = 365;
 
+    // 이자 자동발행(faucet) 1회 호출당 최대 처리 단위. MockUSDC의 파우셋은 1회
+    // 10,000 USDC 상한이 있어서, 계좌가 오래(수개월) 방치돼 누적 이자가 그 상한을
+    // 넘으면 _accrue()의 단일 faucet() 호출이 revert되어 해당 계좌가 입금·인출
+    // 모두 영영 막히는 문제가 있었다. 이제 이자를 이 단위로 나눠 여러 번 호출해
+    // 그 한도를 절대 넘기지 않는다. MockKRW처럼 파우셋에 상한이 없는 토큰은
+    // decimals()==0으로 감지해 청크하지 않고(=type(uint256).max) 기존과 동일하게
+    // 한 번에 처리한다(불필요한 반복 호출로 가스만 낭비하지 않기 위함).
+    uint256 public immutable faucetChunkSize;
+
     struct Account {
         uint256 principal;
         uint256 lastAccrualTime;
@@ -43,6 +53,22 @@ contract ReserveFund is Ownable, ReentrancyGuard {
     constructor(address _stablecoin) Ownable(msg.sender) {
         require(_stablecoin != address(0), "Invalid stablecoin address");
         stablecoin = IERC20(_stablecoin);
+        uint8 dec = IERC20Metadata(_stablecoin).decimals();
+        faucetChunkSize = dec == 0 ? type(uint256).max : 5000 * (10 ** uint256(dec));
+    }
+
+    /**
+     * @dev 이자만큼 실제 토큰을 발행 — 파우셋 1회 상한을 넘지 않도록 필요한 만큼
+     *      나눠서 호출한다 (_accrue 전용).
+     */
+    function _fundInterest(uint256 amount) internal {
+        IFaucetToken token = IFaucetToken(address(stablecoin));
+        uint256 remaining = amount;
+        while (remaining > 0) {
+            uint256 take = remaining > faucetChunkSize ? faucetChunkSize : remaining;
+            token.faucet(take);
+            remaining -= take;
+        }
     }
 
     /**
@@ -70,7 +96,8 @@ contract ReserveFund is Ownable, ReentrancyGuard {
             acc.principal            = newPrincipal;
             acc.totalInterestEarned += interest;
             // 이자만큼 실제 토큰을 발행해 인출 시 잔액이 항상 뒷받침되도록 함
-            IFaucetToken(address(stablecoin)).faucet(interest);
+            // (파우셋 상한을 넘지 않도록 필요 시 여러 번 나눠 호출됨)
+            _fundInterest(interest);
             emit InterestAccrued(patient, interest, newPrincipal, block.timestamp);
         }
         acc.lastAccrualTime += daysElapsed * 1 days;
