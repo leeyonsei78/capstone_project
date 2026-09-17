@@ -141,13 +141,15 @@ let eventListenersAttached = false;
 let currencyMode = 'USDC';   // 'USDC' | 'KRW'
 let configCache  = null;     // config.json 캐시
 
-// ── 증권 발급 이메일 발송 (n8n 연동, 선택) ───────────────────────
-// 로컬 Docker로 띄운 n8n의 Webhook 노드 URL을 여기에 채워 넣으면, 증권이
-// 발급되는 시점에 해당 지갑에 연결된 이메일로 다운로드 링크를 보낼 수 있음.
-// 비워두면(기본값) 아무 일도 하지 않고 조용히 건너뜀 — 다른 선택 기능들과
-// 동일하게 "없으면 스킵" 원칙.
-// 예: "http://localhost:5678/webhook/cert-email"
-const N8N_CERT_EMAIL_WEBHOOK_URL = "";
+// ── 알림 이메일 발송 (n8n 연동, 선택) ─────────────────────────
+// 로컬 Docker로 띄운 n8n의 Webhook 노드 URL을 여기에 채워 넣으면, 증권
+// 발급/청구 승인·거절·지급 시점에 해당 지갑에 연결된 이메일로 알림을
+// 보낼 수 있음. 비워두면(기본값) 아무 일도 하지 않고 조용히 건너뜀 —
+// 다른 선택 기능들과 동일하게 "없으면 스킵" 원칙. 모든 알림 종류가
+// 이 웹훅 하나로 들어가고, payload의 "type" 필드(policy_issued/
+// claim_approved/claim_rejected/claim_paid)로 n8n 쪽에서 분기하면 됨.
+// 예: "http://localhost:5678/webhook/notify"
+const N8N_NOTIFY_WEBHOOK_URL = "";
 
 function certEmailStorageKey(address) {
   return `certEmail:${(address || "").toLowerCase()}`;
@@ -173,17 +175,18 @@ function lookupCertEmail(address) {
 // "/certificates/<파일명>" 경로로 바로 접근 가능하다. n8n이 base URL을 따로
 // 하드코딩할 필요 없이 이 값을 그대로 이메일 링크로 쓰면 된다.
 async function notifyN8nCertReady(policyId, patientAddress, patientName) {
-  if (!N8N_CERT_EMAIL_WEBHOOK_URL) return;
+  if (!N8N_NOTIFY_WEBHOOK_URL) return;
   const email = lookupCertEmail(patientAddress);
   if (!email) return;
 
   const certFileName = `${currencyMode.toLowerCase()}-policy-${policyId}.pdf`;
   const certUrl = `${location.origin}/certificates/${certFileName}`;
   try {
-    await fetch(N8N_CERT_EMAIL_WEBHOOK_URL, {
+    await fetch(N8N_NOTIFY_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        type: "policy_issued",
         email,
         policyId: Number(policyId),
         patientName,
@@ -195,6 +198,40 @@ async function notifyN8nCertReady(policyId, patientAddress, patientName) {
     addLog("info", `📧 n8n으로 증권 발급 이메일 발송 요청 전송 (증권 #${policyId} → ${email})`, `certUrl: ${certUrl}`);
   } catch (e) {
     addLog("error", "n8n 이메일 발송 요청 실패", e.message);
+  }
+}
+
+// 청구 승인/거절/지급 이벤트 시점에 호출 — 증권 발급 이메일과 같은 지갑주소
+// 기준으로 등록된 이메일이 있으면 같은 n8n 웹훅으로 알림 요청을 보낸다.
+// type: "claim_approved" | "claim_rejected" | "claim_paid"
+async function notifyN8nClaimUpdate(type, claimId, extra = {}) {
+  if (!N8N_NOTIFY_WEBHOOK_URL) return;
+  if (!insCtx) return;
+  try {
+    const claim = await insCtx.getClaim(claimId);
+    const email = lookupCertEmail(claim.patient);
+    if (!email) return;
+
+    const policy = await insCtx.getPolicy(claim.policyId).catch(() => null);
+    await fetch(N8N_NOTIFY_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type,
+        email,
+        claimId: Number(claimId),
+        policyId: Number(claim.policyId),
+        patientName: policy ? policy.patientName : "",
+        currency: currencyMode,
+        amount: Number(claim.amount),
+        amountFormatted: fmtByCcy(claim.amount, currencyMode),
+        treatmentCode: claim.treatmentCode,
+        ...extra,
+      }),
+    });
+    addLog("info", `📧 n8n으로 청구 처리 결과 이메일 발송 요청 전송 (청구 #${claimId} → ${email})`, `type: ${type}`);
+  } catch (e) {
+    addLog("error", "n8n 청구 알림 발송 요청 실패", e.message);
   }
 }
 
@@ -380,6 +417,24 @@ function parseCompositeId(value) {
   return { ccy, id };
 }
 function compositeId(ccy, id) { return `${ccy}-${id}`; }
+
+// 청구/납입/자동납부/약관대출/만기환급 드롭다운에서 선택한 증권이 현재 화면
+// 통화(currencyMode)와 다른 통화일 때 보여주는 인라인 안내 배지.
+// convert=true면 "입력 금액이 자동 환산되어 전송됨"(청구/약관대출),
+// false면 "그 통화 잔액이 그대로 필요함"(납입/자동납부/만기환급)으로 문구가 갈린다.
+function updateCcyHint(hintElId, compositeValue, { convert = false } = {}) {
+  const hintEl = el(hintElId);
+  if (!hintEl) return;
+  const parsed = parseCompositeId(compositeValue);
+  if (!parsed || parsed.ccy === currencyMode) {
+    hintEl.style.display = "none";
+    return;
+  }
+  hintEl.style.display = "block";
+  hintEl.textContent = convert
+    ? `⚠️ 이 증권은 [${parsed.ccy}] 계약입니다 — 입력한 금액은 현재 화면 통화(${currencyMode}) 기준으로 받아 [${parsed.ccy}]로 자동 환산되어 전송됩니다.`
+    : `ℹ️ 이 증권은 [${parsed.ccy}] 계약입니다 — 처리 시 [${parsed.ccy}] 잔액이 필요합니다.`;
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  에러 파싱 (핵심 - 모든 에러 유형 처리)
@@ -1186,18 +1241,21 @@ function attachEventListeners() {
       `증권 ID  : #${policyId}\n승인금액 : ${fmtUsdc(amount)}`,
       event.log.transactionHash);
     refreshAll();
+    notifyN8nClaimUpdate("claim_approved", claimId);
   });
   insCtx.on("ClaimRejected", (claimId, policyId, reason, ts, event) => {
     addLog("event", `❌ 청구 거절 이벤트: 청구 #${claimId}`,
       `증권 ID  : #${policyId}\n거절사유 : ${reason}`,
       event.log.transactionHash);
     refreshAll();
+    notifyN8nClaimUpdate("claim_rejected", claimId, { reason });
   });
   insCtx.on("ClaimPaid", (claimId, policyId, patient, amount, ts, event) => {
     addLog("event", `💰 보험금 지급 이벤트: 청구 #${claimId}`,
       `수령자   : ${patient}\n지급금액 : ${fmtUsdc(amount)}`,
       event.log.transactionHash);
     refreshAll();
+    notifyN8nClaimUpdate("claim_paid", claimId);
   });
   insCtx.on("FundsDeposited", (depositor, amount, ts, event) => {
     addLog("event", `🏦 준비금 입금 이벤트: ${fmtUsdc(amount)} USDC`,
@@ -1730,6 +1788,10 @@ async function deactivatePolicy(policyIdOrComposite) {
 // ═══════════════════════════════════════════════════════════════
 //  보험료 납입 (approve + payPremium 각 단계 로깅)
 // ═══════════════════════════════════════════════════════════════
+function updatePremiumCcyHint() {
+  updateCcyHint("premiumCcyHint", el("premiumPolicyId")?.value, { convert: false });
+}
+
 async function payPremium() {
   addLog("step", "[보험료 납입] 시작");
   const composite = parseCompositeId(el("premiumPolicyId").value);
@@ -1953,7 +2015,9 @@ async function submitClaim() {
 async function refreshClaimCoverageInfo() {
   const box = el("claimCoverageInfo");
   if (!box) return;
-  const composite = parseCompositeId(el("claimPolicyId")?.value);
+  const rawValue = el("claimPolicyId")?.value;
+  updateCcyHint("claimCcyHint", rawValue, { convert: true });
+  const composite = parseCompositeId(rawValue);
   if (!composite) { box.style.display = "none"; return; }
   const handle = getContractsForCcy(composite.ccy);
   if (!handle?.ctx) { box.style.display = "none"; return; }
@@ -2303,6 +2367,161 @@ async function adminMintUsdc() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  통계 차트 (외부 라이브러리 없이 인라인 SVG/CSS로 렌더링)
+// ═══════════════════════════════════════════════════════════════
+
+// 도넛 차트 — segments: [{label, value(숫자), display(표시용 문자열), color}]
+function renderDonutChart(containerId, segments) {
+  const box = el(containerId);
+  if (!box) return;
+  const total = segments.reduce((s, x) => s + x.value, 0);
+
+  const legend = segments.map(s => `
+    <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);margin-top:4px">
+      <span style="width:10px;height:10px;border-radius:2px;background:${s.color};display:inline-block;flex-shrink:0"></span>
+      <span>${s.label}</span>
+      <span style="color:var(--text-primary);font-weight:600;margin-left:auto">${s.display}</span>
+      <span style="color:var(--text-muted);min-width:42px;text-align:right">${total > 0 ? ((s.value / total) * 100).toFixed(1) : "0.0"}%</span>
+    </div>`).join("");
+
+  if (total <= 0) {
+    box.innerHTML = `<div style="text-align:center;color:var(--text-muted);padding:24px 0;font-size:13px">아직 데이터가 없습니다</div>${legend}`;
+    return;
+  }
+
+  const r = 52, cx = 64, cy = 64, strokeWidth = 22;
+  const circumference = 2 * Math.PI * r;
+  let offset = 0;
+  const arcs = segments.filter(s => s.value > 0).map(s => {
+    const frac = s.value / total;
+    const dash = Math.max(frac * circumference, 0.0001);
+    const gap = circumference - dash;
+    const rotate = (offset / total) * 360 - 90;
+    offset += s.value;
+    return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${strokeWidth}"
+      stroke-dasharray="${dash} ${gap}" transform="rotate(${rotate} ${cx} ${cy})">
+      <title>${s.label}: ${s.display} (${(frac * 100).toFixed(1)}%)</title>
+    </circle>`;
+  }).join("");
+
+  box.innerHTML = `
+    <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+      <svg width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="비중 도넛 차트" style="flex-shrink:0">${arcs}</svg>
+      <div style="display:flex;flex-direction:column;flex:1;min-width:160px">${legend}</div>
+    </div>`;
+}
+
+// 가로 막대 차트 — bars: [{label, value(숫자, 막대 길이 비율 계산용), display(표시용 문자열), color}]
+function renderBarChart(containerId, bars) {
+  const box = el(containerId);
+  if (!box) return;
+  const max = Math.max(1, ...bars.map(b => b.value));
+  const anyData = bars.some(b => b.value > 0);
+  box.innerHTML = bars.map(b => {
+    const pct = b.value > 0 ? Math.max(3, (b.value / max) * 100) : 0;
+    return `
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary);margin-bottom:4px">
+          <span>${b.label}</span>
+          <span style="color:var(--text-primary);font-weight:600">${b.display}</span>
+        </div>
+        <div style="background:var(--bg-input);border-radius:5px;height:12px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:${b.color};border-radius:5px;transition:width .3s"
+               title="${b.label}: ${b.display}"></div>
+        </div>
+      </div>`;
+  }).join("") + (anyData ? "" : `<div style="text-align:center;color:var(--text-muted);padding:8px 0;font-size:12px">아직 데이터가 없습니다</div>`);
+}
+
+// 4개 통계 차트를 USDC+KRW 통합 데이터로 갱신 — refreshBlockchainState()에서 호출됨
+async function refreshStatCharts() {
+  if (!getContractsForCcy(currencyMode)?.ctx) return;
+  const sym = stableName();
+  if (el("chartCcySplitUnit")) el("chartCcySplitUnit").textContent = sym;
+
+  try {
+    // ── 1) 통화별 보험료 수납 비중 ──────────────────────────
+    let usdcPremiumRaw = 0n, krwPremiumRaw = 0n;
+    for (const ccy of ['USDC', 'KRW']) {
+      const handle = getContractsForCcy(ccy);
+      if (!handle?.ctx) continue;
+      try {
+        const stats = await handle.ctx.getStats();
+        const converted = convertRawAmount(stats.premiumsCollected, ccy, currencyMode);
+        if (ccy === 'USDC') usdcPremiumRaw = converted; else krwPremiumRaw = converted;
+      } catch (e) { addLog("error", `[${ccy}] 차트용 통계 조회 실패`, e.message); }
+    }
+    const dec = decimalsForCcy(currencyMode);
+    const toHuman = (raw) => Number(ethers.formatUnits(raw, dec));
+    renderDonutChart("chartCcySplit", [
+      { label: "USDC 계약", value: toHuman(usdcPremiumRaw), display: fmtByCcy(usdcPremiumRaw, currencyMode), color: "var(--accent-blue)" },
+      { label: "KRW 계약",  value: toHuman(krwPremiumRaw),  display: fmtByCcy(krwPremiumRaw, currencyMode),  color: "var(--accent-yellow)" },
+    ]);
+
+    // ── 2) 청약 심사 현황 ────────────────────────────────────
+    const appRows = await fetchAllApplicationsBothCcy();
+    const appCounts = [0, 0, 0];
+    appRows.forEach(({ a }) => appCounts[Number(a.status)]++);
+    renderBarChart("chartAppStatus", [
+      { label: "⏳ 대기중", value: appCounts[0], display: `${appCounts[0]}건`, color: "var(--accent-yellow)" },
+      { label: "✅ 승인됨", value: appCounts[1], display: `${appCounts[1]}건`, color: "var(--accent-blue)" },
+      { label: "❌ 거절됨", value: appCounts[2], display: `${appCounts[2]}건`, color: "var(--accent-red)" },
+    ]);
+
+    // ── 3) 청구 상태별 건수 ──────────────────────────────────
+    const claimRows = await fetchAllClaimsBothCcy();
+    const claimCounts = [0, 0, 0, 0];
+    claimRows.forEach(({ c }) => claimCounts[Number(c.status)]++);
+    renderBarChart("chartClaimStatus", [
+      { label: "⏳ 대기중",   value: claimCounts[0], display: `${claimCounts[0]}건`, color: "var(--accent-yellow)" },
+      { label: "✅ 승인됨",   value: claimCounts[1], display: `${claimCounts[1]}건`, color: "var(--accent-blue)" },
+      { label: "❌ 거절됨",   value: claimCounts[2], display: `${claimCounts[2]}건`, color: "var(--accent-red)" },
+      { label: "💰 지급완료", value: claimCounts[3], display: `${claimCounts[3]}건`, color: "var(--accent-green)" },
+    ]);
+
+    // ── 4) 자금 흐름 비교 (현재 화면 통화로 환산) ────────────
+    let totalPremiumsRaw = 0n, totalClaimsRaw = 0n, totalReserveRaw = 0n;
+    for (const ccy of ['USDC', 'KRW']) {
+      const handle = getContractsForCcy(ccy);
+      if (handle?.ctx) {
+        try {
+          const stats = await handle.ctx.getStats();
+          totalPremiumsRaw += convertRawAmount(stats.premiumsCollected, ccy, currencyMode);
+          totalClaimsRaw   += convertRawAmount(stats.claimsPaid, ccy, currencyMode);
+        } catch (e) { addLog("error", `[${ccy}] 차트용 통계 조회 실패`, e.message); }
+      }
+      const rHandle = getReserveForCcy(ccy);
+      if (rHandle?.ctx) {
+        try {
+          const holders = await rHandle.ctx.getAllHolders();
+          const previews = await Promise.all(holders.map(a => rHandle.ctx.previewBalance(a).catch(() => ({ projectedPrincipal: 0n }))));
+          const sum = previews.reduce((s, p) => s + p.projectedPrincipal, 0n);
+          totalReserveRaw += convertRawAmount(sum, ccy, currencyMode);
+        } catch (e) { addLog("error", `[${ccy}] 차트용 준비금 조회 실패`, e.message); }
+      }
+    }
+    // 약관대출 총액(활성 대출만) — 두 통화 증권을 순회하며 합산
+    const policyRows = await fetchAllPoliciesBothCcy();
+    const loanAmounts = await Promise.all(policyRows.map(async ({ p, ccy }) => {
+      const handle = getContractsForCcy(ccy);
+      if (!handle?.ctx) return 0n;
+      const loan = await handle.ctx.getPolicyLoan(p.id).catch(() => null);
+      return loan && loan.active ? convertRawAmount(loan.loanAmount, ccy, currencyMode) : 0n;
+    }));
+    const totalLoansRaw = loanAmounts.reduce((s, v) => s + v, 0n);
+
+    renderBarChart("chartFundsFlow", [
+      { label: "💳 보험료 수납", value: toHuman(totalPremiumsRaw), display: fmtByCcy(totalPremiumsRaw, currencyMode), color: "var(--accent-blue)" },
+      { label: "💰 보험금 지급", value: toHuman(totalClaimsRaw),   display: fmtByCcy(totalClaimsRaw, currencyMode),   color: "var(--accent-red)" },
+      { label: "🏛️ 준비금 잔액", value: toHuman(totalReserveRaw), display: fmtByCcy(totalReserveRaw, currencyMode), color: "var(--accent-cyan)" },
+      { label: "💵 약관대출 잔액", value: toHuman(totalLoansRaw), display: fmtByCcy(totalLoansRaw, currencyMode),   color: "var(--accent-purple)" },
+    ]);
+  } catch (err) {
+    addLog("error", "통계 차트 갱신 실패", parseError(err));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  블록체인 상태
 // ═══════════════════════════════════════════════════════════════
 async function refreshBlockchainState() {
@@ -2359,6 +2578,8 @@ async function refreshBlockchainState() {
 
     addLog("call", "블록체인 상태 조회 완료",
       `블록 #${block.number} | 보험사잔액(USDC+KRW 환산): ${fmtByCcy(totalContractBal, currencyMode)} | 내잔액: ${fmtUsdc(myBal)}`);
+
+    refreshStatCharts();
   } catch (err) {
     addLog("error", "블록체인 상태 조회 실패", parseError(err));
   }
@@ -2544,7 +2765,9 @@ async function processMaturityRefund(policyIdOrComposite) {
 }
 
 async function loadMyMaturitySetting() {
-  const composite = parseCompositeId(el("maturityPolicyId")?.value);
+  const rawValue = el("maturityPolicyId")?.value;
+  updateCcyHint("maturityCcyHint", rawValue, { convert: false });
+  const composite = parseCompositeId(rawValue);
   const box = el("myMaturityCurrentBox");
   if (!box) return;
   if (!composite) { box.textContent = ""; return; }
@@ -2660,7 +2883,9 @@ async function refreshAutopaySchedule() {
 }
 
 async function loadAutopayStatus() {
-  const composite = parseCompositeId(el("autopayPolicyId")?.value);
+  const rawValue = el("autopayPolicyId")?.value;
+  updateCcyHint("autopayCcyHint", rawValue, { convert: false });
+  const composite = parseCompositeId(rawValue);
   const box    = el("autopayStatusBox");
   const onBtn  = el("autopayOnBtn");
   const offBtn = el("autopayOffBtn");
@@ -2823,7 +3048,46 @@ const DENTAL_COVERAGE_OPTIONS = [
 // 덮어써짐(tryLoadConfig 참고). mock-provider.js/oracle-service.js도 같은 config.json
 // 값을 읽으므로 세 곳이 따로 하드코딩해서 어긋나는 일이 없음. config.json 로드 전
 // 잠깐 쓰이거나 값이 없는 옛 배포본을 위한 기본값으로 1400을 폴백함.
+// 관리자가 admin 패널에서 직접 조정하면(applyExchangeRateOverride) 이 브라우저의
+// localStorage에 저장되어, config.json 값보다 우선 적용된다(재배포 없이 데모 중
+// 환율 변동 시나리오를 보여줄 수 있게 하려는 것 — 온체인 계약이나 config.json
+// 자체를 바꾸는 것은 아니고, 프론트엔드가 화면에 보여주는 환산 계산에만 영향).
 let KRW_PER_USD = 1400;
+
+function krwOverrideStorageKey() { return "krwPerUsdOverride"; }
+
+function loadKrwRateOverride() {
+  try {
+    const raw = localStorage.getItem(krwOverrideStorageKey());
+    const v = Number(raw);
+    if (raw && v > 0) KRW_PER_USD = v;
+  } catch (_) { /* 무시 */ }
+  const input = el("krwPerUsdInput");
+  if (input) input.value = KRW_PER_USD;
+}
+
+function applyExchangeRateOverride() {
+  const v = Number(el("krwPerUsdInput")?.value);
+  if (!v || v <= 0) { showToast("올바른 환율을 입력하세요.", "warning"); return; }
+  KRW_PER_USD = v;
+  try { localStorage.setItem(krwOverrideStorageKey(), String(v)); } catch (_) { /* 무시 */ }
+  addLog("info", `💱 환율 수동 설정: 1 USD = ${v}원`,
+    "이 브라우저에만 적용되는 화면 표시/환산용 값입니다. config.json이나 온체인 상태는 바뀌지 않습니다.");
+  showToast(`환율이 1 USD = ${v.toLocaleString("ko-KR")}원으로 적용되었습니다.`, "success");
+  refreshStats();
+  refreshBlockchainState();
+}
+
+function resetExchangeRateOverride() {
+  try { localStorage.removeItem(krwOverrideStorageKey()); } catch (_) { /* 무시 */ }
+  KRW_PER_USD = configCache?.krwPerUsd || 1400;
+  const input = el("krwPerUsdInput");
+  if (input) input.value = KRW_PER_USD;
+  addLog("info", `💱 환율을 배포 시 설정값(1 USD = ${KRW_PER_USD}원)으로 되돌렸습니다.`);
+  showToast("환율이 기본값으로 초기화되었습니다.", "success");
+  refreshStats();
+  refreshBlockchainState();
+}
 
 // 라이나 상품 구조(연령대별 위험도 반영)를 참고한 나이 배율 — 실제 요율표가 아닌 참고 추정치
 function ageMultiplier(age) {
@@ -3047,7 +3311,9 @@ let _loanMaxAmount = 0n;
 let _loanCcy       = 'USDC'; // 현재 선택된 증권이 실제로 속한 통화 (금액 환산 기준)
 
 async function refreshLoanInfo() {
-  const composite = parseCompositeId(el("loanPolicyId")?.value);
+  const rawValue = el("loanPolicyId")?.value;
+  updateCcyHint("loanCcyHint", rawValue, { convert: true });
+  const composite = parseCompositeId(rawValue);
   const infoBox  = el("loanInfoBox");
   const reqBox   = el("loanRequestBox");
   const repayBox = el("loanRepayBox");
@@ -3531,6 +3797,7 @@ function showTab(tabName) {
   if (tabName === "underwriting")   refreshApplications();
   if (tabName === "loan")           refreshLoanPolicies();
   if (tabName === "reserve")        refreshReserve();
+  if (tabName === "admin")          loadKrwRateOverride();
 }
 
 // ── 내 주소 복사 ──────────────────────────────────────────────
@@ -3549,4 +3816,5 @@ window.addEventListener("load", async () => {
   renderCoverageOptions();
   updateCurrencyLabels();
   await tryLoadConfig();
+  loadKrwRateOverride(); // config.json 로드 이후 — localStorage에 저장된 관리자 환율 오버라이드가 있으면 최종 적용
 });

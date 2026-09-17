@@ -341,9 +341,10 @@
           </div>
           <div class="form-group">
             <label>보험증권 선택 <span style="font-size:11px;color:var(--text-muted)">(USDC·KRW 증권 모두 표시)</span></label>
-            <select id="premiumPolicyId" class="form-control">
+            <select id="premiumPolicyId" class="form-control" onchange="updatePremiumCcyHint()">
               <option value="">-- 증권을 먼저 연결하세요 --</option>
             </select>
+            <div id="premiumCcyHint" style="display:none;margin-top:6px;font-size:12px;color:var(--accent-yellow)"></div>
           </div>
           <button class="btn btn-primary btn-block btn-lg" onclick="payPremium()" style="margin-top:8px">
             💳 보험료 납입하기
@@ -403,6 +404,7 @@
             <select id="claimPolicyId" class="form-control" onchange="refreshClaimCoverageInfo()">
               <option value="">-- 증권을 먼저 연결하세요 --</option>
             </select>
+            <div id="claimCcyHint" style="display:none;margin-top:6px;font-size:12px;color:var(--accent-yellow)"></div>
           </div>
           <div id="claimCoverageInfo" class="alert alert-info" style="display:none;font-size:13px">
             <span>💰</span>
@@ -592,6 +594,22 @@
             * 관리자 USDC 잔액에서 컨트랙트로 이전됩니다. approve가 자동 처리됩니다.
           </p>
         </div>
+
+        <div class="card">
+          <div class="card-title">💱 USDC↔KRW 환율 설정</div>
+          <div class="alert alert-info">
+            <span>ℹ️</span>
+            <div>이 브라우저에서만 적용되는 화면 표시·환산용 값입니다. 온체인 계약이나 config.json은 바뀌지 않으며, 발표 중 환율 변동 시나리오를 보여줄 때 사용하세요.</div>
+          </div>
+          <div class="form-group">
+            <label>1 USD = ? 원</label>
+            <input type="number" id="krwPerUsdInput" class="form-control" placeholder="1400" min="1" step="1">
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary" onclick="applyExchangeRateOverride()">💱 환율 적용</button>
+            <button class="btn btn-ghost" onclick="resetExchangeRateOverride()">↩️ 배포값으로 초기화</button>
+          </div>
+        </div>
       </div>
 
       <!-- 토큰 관리 & 빠른 작업 -->
@@ -705,6 +723,7 @@
             <select id="autopayPolicyId" class="form-control" onchange="loadAutopayStatus()">
               <option value="">-- 증권을 먼저 연결하세요 --</option>
             </select>
+            <div id="autopayCcyHint" style="display:none;margin-top:6px;font-size:12px;color:var(--accent-yellow)"></div>
           </div>
 
           <!-- 현재 상태 표시 -->
@@ -866,6 +885,7 @@
         <select id="maturityPolicyId" class="form-control" onchange="loadMyMaturitySetting()">
           <option value="">-- 증권을 먼저 연결하세요 --</option>
         </select>
+        <div id="maturityCcyHint" style="display:none;margin-top:6px;font-size:12px;color:var(--accent-yellow)"></div>
       </div>
       <div class="form-group">
         <label>만기 시점 선택</label>
@@ -1111,6 +1131,7 @@
             <select id="loanPolicyId" class="form-control" onchange="refreshLoanInfo()">
               <option value="">-- 증권을 먼저 연결하세요 --</option>
             </select>
+            <div id="loanCcyHint" style="display:none;margin-top:6px;font-size:12px;color:var(--accent-yellow)"></div>
           </div>
 
           <!-- 대출 한도 정보 -->
@@ -1370,6 +1391,30 @@
         </ul>
       </div>
 
+    </div>
+
+    <!-- 통계 차트 (USDC+KRW 통합, 외부 라이브러리 없이 인라인 SVG/CSS로 렌더링) -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+      <div class="card">
+        <div class="card-title">💱 통화별 보험료 수납 비중</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">현재 화면 통화(<span id="chartCcySplitUnit">USDC</span>) 기준으로 환산해 비교</div>
+        <div id="chartCcySplit"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">📝 청약 심사 현황</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">USDC+KRW 전체 청약 건수</div>
+        <div id="chartAppStatus"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">🦷 보험금 청구 상태별 건수</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">USDC+KRW 전체 청구 건수</div>
+        <div id="chartClaimStatus"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">💰 자금 흐름 비교</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">현재 화면 통화로 환산한 합산 금액</div>
+        <div id="chartFundsFlow"></div>
+      </div>
     </div>
 
     <!-- 이벤트 스트림 (최근 이벤트) -->

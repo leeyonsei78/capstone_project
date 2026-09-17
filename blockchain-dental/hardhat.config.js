@@ -1,4 +1,5 @@
 require("@nomicfoundation/hardhat-ethers");
+require("@nomicfoundation/hardhat-chai-matchers");
 require("dotenv").config();
 
 // .env.example의 PRIVATE_KEY 예시값("your_private_key_without_0x_prefix")처럼
