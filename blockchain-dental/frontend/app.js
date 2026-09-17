@@ -250,6 +250,88 @@ function parseUsdc(val) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  통화 교차 조회/표시 (보험증권 관리 · 보험금 청구 — USDC/KRW 통합 뷰)
+//
+//  이 두 탭은 현재 토글된 통화(currencyMode)와 무관하게 USDC/KRW 양쪽
+//  계약을 함께 보여준다. 실제 온체인 결제 통화는 계약이 어느 컨트랙트에
+//  있는지로 고정되므로(계약 자체를 다른 통화로 바꿀 수는 없음), 화면
+//  표시/입력만 현재 보고 있는 통화로 변환해서 보여주고, 실제 트랜잭션은
+//  항상 그 계약이 속한 원래 컨트랙트로 보낸다.
+// ═══════════════════════════════════════════════════════════════
+function decimalsForCcy(ccy) { return ccy === 'KRW' ? 0 : 6; }
+
+function fmtByCcy(raw, ccy) {
+  const n = typeof raw === "bigint" ? raw : BigInt((raw || 0).toString());
+  if (ccy === 'KRW') return "₩" + Number(n).toLocaleString("ko-KR");
+  return "$" + parseFloat(ethers.formatUnits(n, 6)).toLocaleString("ko-KR", {
+    minimumFractionDigits: 2, maximumFractionDigits: 2
+  });
+}
+
+// raw 금액(ccy 기준)을 반대 통화 값으로 환산해 "≈ ..." 형태로 반환 (표시 전용)
+function convertedAmountLabel(raw, ccy) {
+  const n = typeof raw === "bigint" ? raw : BigInt((raw || 0).toString());
+  if (ccy === 'USDC') {
+    const usdVal = Number(ethers.formatUnits(n, 6));
+    return `≈ ₩${Math.round(usdVal * KRW_PER_USD).toLocaleString("ko-KR")}`;
+  }
+  const krwVal = Number(n);
+  return `≈ $${(krwVal / KRW_PER_USD).toLocaleString("ko-KR", {
+    minimumFractionDigits: 2, maximumFractionDigits: 2
+  })}`;
+}
+
+// rawAmount(fromCcy 기준)를 toCcy의 최소단위 raw 값(BigInt)으로 환산.
+// 같은 통화면 그대로 반환 — 반올림 오차 없이 원래 값 유지.
+function convertRawAmount(rawAmount, fromCcy, toCcy) {
+  const n = typeof rawAmount === "bigint" ? rawAmount : BigInt((rawAmount || 0).toString());
+  if (fromCcy === toCcy) return n;
+  if (fromCcy === 'USDC' && toCcy === 'KRW') {
+    const usdVal = Number(ethers.formatUnits(n, 6));
+    return BigInt(Math.round(usdVal * KRW_PER_USD));
+  }
+  // fromCcy === 'KRW' && toCcy === 'USDC'
+  const krwVal = Number(n);
+  const usdVal = krwVal / KRW_PER_USD;
+  return ethers.parseUnits(usdVal.toFixed(6), 6);
+}
+
+// 현재 모드가 아닌("다른") 통화의 DentalInsurance 컨트랙트 핸들을 지연 생성 +
+// 캐시. 청구/증권 목록을 통화 구분 없이 한 번에 보여주기 위해 사용.
+const _ccyContractCache = {};
+function getContractsForCcy(ccy) {
+  if (ccy === currencyMode) {
+    if (!insCtx) return null;
+    return { ctx: insCtx, sign: insSign, decimals: stableDecimals(), ccy };
+  }
+  if (!configCache?.contracts || !provider) return null;
+  const addr = ccy === 'KRW' ? configCache.contracts.DentalInsuranceKRW : configCache.contracts.DentalInsurance;
+  if (!addr) return null;
+  const cacheKey = `${ccy}:${addr}`;
+  if (!_ccyContractCache[cacheKey]) {
+    _ccyContractCache[cacheKey] = {
+      ctx: new ethers.Contract(addr, INSURANCE_ABI, provider),
+      sign: signer ? new ethers.Contract(addr, INSURANCE_ABI, signer) : null,
+      decimals: decimalsForCcy(ccy),
+      ccy,
+    };
+  }
+  return _ccyContractCache[cacheKey];
+}
+
+// "USDC-3" / "KRW-3" 같은 합성 ID 파싱
+function parseCompositeId(value) {
+  if (!value) return null;
+  const idx = value.indexOf("-");
+  if (idx < 0) return null;
+  const ccy = value.slice(0, idx);
+  const id = value.slice(idx + 1);
+  if (ccy !== 'USDC' && ccy !== 'KRW') return null;
+  return { ccy, id };
+}
+function compositeId(ccy, id) { return `${ccy}-${id}`; }
+
+// ═══════════════════════════════════════════════════════════════
 //  에러 파싱 (핵심 - 모든 에러 유형 처리)
 // ═══════════════════════════════════════════════════════════════
 function parseError(err) {
@@ -1403,40 +1485,57 @@ async function createPolicy() {
   );
 }
 
+// 두 통화 컨트랙트에서 증권 목록을 함께 가져와 {p, ccy, decimals} 형태로 합침.
+// 하나가 없거나 조회에 실패해도(예: KRW 컨트랙트 미배포) 나머지 통화는 그대로 보여준다.
+async function fetchAllPoliciesBothCcy() {
+  const handles = [getContractsForCcy('USDC'), getContractsForCcy('KRW')].filter(h => h && h.ctx);
+  const lists = await Promise.all(handles.map(async (h) => {
+    try {
+      const ids = await h.ctx.getAllPolicyIds();
+      const policies = await Promise.all(ids.map(id => h.ctx.getPolicy(id)));
+      return policies.map(p => ({ p, ccy: h.ccy, decimals: h.decimals }));
+    } catch (e) {
+      addLog("error", `[${h.ccy}] 보험증권 목록 조회 실패`, e.message);
+      return [];
+    }
+  }));
+  return lists.flat();
+}
+
 async function refreshPolicies() {
   if (!insCtx) return;
   try {
-    const ids = await insCtx.getAllPolicyIds();
-    addLog("call", `보험증권 목록 조회: ${ids.length}건`);
+    let rows = await fetchAllPoliciesBothCcy();
+    addLog("call", `보험증권 목록 조회 (USDC+KRW 통합): ${rows.length}건`);
     const tbody = el("policyTableBody");
     if (!tbody) return;
-    if (ids.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="color:var(--text-muted);padding:30px">보험증권이 없습니다</td></tr>`;
-      return;
-    }
-    let policies = await Promise.all(ids.map(id => insCtx.getPolicy(id)));
     if (!isOwner) {
-      policies = policies.filter(p => p.patient.toLowerCase() === userAddr?.toLowerCase());
+      rows = rows.filter(({ p }) => p.patient.toLowerCase() === userAddr?.toLowerCase());
     }
-    if (policies.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="color:var(--text-muted);padding:30px">보험증권이 없습니다</td></tr>`;
+    if (rows.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="9" class="text-center" style="color:var(--text-muted);padding:30px">보험증권이 없습니다</td></tr>`;
+      updatePolicySelect([]);
       return;
     }
-    tbody.innerHTML = policies.map(p => `
+    tbody.innerHTML = rows.map(({ p, ccy }) => `
       <tr>
         <td><strong>#${p.id}</strong></td>
+        <td><span class="badge" style="background:${ccy === 'KRW' ? 'rgba(255,159,10,0.15)' : 'rgba(47,129,247,0.15)'};color:${ccy === 'KRW' ? 'var(--accent-yellow)' : 'var(--accent-blue)'}">${ccy}</span></td>
         <td>${p.patientName}</td>
         <td class="addr-short" onclick="copyToClip('${p.patient}')" title="${p.patient}">${shortAddr(p.patient)}</td>
-        <td class="text-right" style="color:var(--accent-blue)">${fmtUsdc(p.monthlyPremium)}</td>
-        <td class="text-right" style="color:var(--accent-cyan)">${fmtUsdc(p.coverageLimit)}</td>
-        <td class="text-right" style="color:var(--accent-green)">${fmtUsdc(p.totalPaid)}</td>
+        <td class="text-right" style="color:var(--accent-blue)">${fmtByCcy(p.monthlyPremium, ccy)}<div style="font-size:10px;color:var(--text-muted)">${convertedAmountLabel(p.monthlyPremium, ccy)}</div></td>
+        <td class="text-right" style="color:var(--accent-cyan)">${fmtByCcy(p.coverageLimit, ccy)}<div style="font-size:10px;color:var(--text-muted)">${convertedAmountLabel(p.coverageLimit, ccy)}</div></td>
+        <td class="text-right" style="color:var(--accent-green)">${fmtByCcy(p.totalPaid, ccy)}</td>
         <td>${tsToDate(p.lastPaymentTime)}</td>
         <td>
           <span class="badge ${p.active ? "badge-active" : "badge-inactive"}">${p.active ? "활성" : "비활성"}</span>
-          ${isOwner && p.active ? `<button class="btn btn-danger btn-sm" onclick="deactivatePolicy(${p.id})" style="margin-left:6px">비활성화</button>` : ""}
+          ${isOwner && p.active ? `<button class="btn btn-danger btn-sm" onclick="deactivatePolicy('${compositeId(ccy, p.id)}')" style="margin-left:6px">비활성화</button>` : ""}
         </td>
       </tr>`).join("");
-    updatePolicySelect(policies.filter(p => p.active));
+    // 보험료납입/자동납부/약관대출/만기환급 탭은 지금까지처럼 "현재 토글된 통화"만 대상으로 함
+    updatePolicySelect(rows.filter(r => r.ccy === currencyMode && r.p.active).map(r => r.p));
+    // 보험금 청구 탭만 두 통화를 합쳐서 선택 가능하게 함 (아래 별도 함수)
+    updateClaimPolicySelect(rows.filter(r => r.p.active));
   } catch (err) {
     addLog("error", "보험증권 목록 조회 실패", parseError(err));
   }
@@ -1467,11 +1566,12 @@ function updateAdminOnlyVisibility() {
 }
 
 function updatePolicySelect(policies) {
-  // 보험료 납입/청구/자동납부/약관대출은 모두 본인 소유 증권만 대상으로 함
+  // 보험료 납입/자동납부/약관대출/만기환급은 지금까지처럼 "현재 토글된 통화"의
+  // 본인 소유 증권만 대상으로 함 (보험금 청구는 updateClaimPolicySelect가 별도 처리)
   const myPolicies = userAddr
     ? policies.filter(p => p.patient.toLowerCase() === userAddr.toLowerCase())
     : [];
-  ["premiumPolicyId", "claimPolicyId", "autopayPolicyId", "loanPolicyId", "maturityPolicyId"].forEach(selId => {
+  ["premiumPolicyId", "autopayPolicyId", "loanPolicyId", "maturityPolicyId"].forEach(selId => {
     const sel = el(selId);
     if (!sel) return;
     const cur = sel.value;
@@ -1482,14 +1582,36 @@ function updatePolicySelect(policies) {
   });
 }
 
-async function deactivatePolicy(policyId) {
-  addLog("step", `[증권 비활성화] #${policyId}`);
-  if (!confirm(`증권 #${policyId}를 비활성화하시겠습니까?`)) {
-    addLog("info", `증권 #${policyId} 비활성화 취소됨`); return;
+// 보험금 청구 탭 전용 — USDC/KRW 두 통화의 증권을 함께 보여주고,
+// 실제 값은 "USDC-3"/"KRW-3" 같은 합성 ID로 저장해 어느 컨트랙트로 보낼지 구분한다.
+function updateClaimPolicySelect(rows) {
+  const sel = el("claimPolicyId");
+  if (!sel) return;
+  const myRows = userAddr
+    ? rows.filter(({ p }) => p.patient.toLowerCase() === userAddr.toLowerCase())
+    : [];
+  const cur = sel.value;
+  sel.innerHTML = `<option value="">-- 증권 선택 --</option>` +
+    myRows.map(({ p, ccy }) => {
+      const val = compositeId(ccy, p.id);
+      return `<option value="${val}" ${val === cur ? "selected" : ""}>[${ccy}] #${p.id} - ${p.patientName} (월 ${fmtByCcy(p.monthlyPremium, ccy)})</option>`;
+    }).join("");
+}
+
+async function deactivatePolicy(policyIdOrComposite) {
+  const parsed = parseCompositeId(policyIdOrComposite);
+  const ccy    = parsed ? parsed.ccy : currencyMode;
+  const id     = parsed ? parsed.id  : policyIdOrComposite;
+  const handle = getContractsForCcy(ccy);
+  if (!handle?.sign) { showToast("컨트랙트를 먼저 연결하세요.", "warning"); return; }
+
+  addLog("step", `[증권 비활성화] [${ccy}] #${id}`);
+  if (!confirm(`[${ccy}] 증권 #${id}를 비활성화하시겠습니까?`)) {
+    addLog("info", `증권 #${id} 비활성화 취소됨`); return;
   }
   await sendTx(
-    async () => insSign.deactivatePolicy(policyId),
-    `증권 #${policyId} 비활성화`,
+    async () => handle.sign.deactivatePolicy(id),
+    `[${ccy}] 증권 #${id} 비활성화`,
     async () => refreshPolicies()
   );
 }
@@ -1644,37 +1766,44 @@ async function refreshPremiumHistory() {
 // ═══════════════════════════════════════════════════════════════
 async function submitClaim() {
   addLog("step", "[보험금 청구] 시작");
-  if (!insSign) {
-    addLog("error", "청구 실패", "insSign 없음 - 컨트랙트 연결 필요");
+
+  const composite = parseCompositeId(el("claimPolicyId").value);
+  if (!composite) {
+    addLog("error", "청구 입력 오류", "증권이 선택되지 않았습니다."); showToast("증권을 선택하세요.", "warning"); return;
+  }
+  const { ccy: policyCcy, id: policyId } = composite;
+  const handle = getContractsForCcy(policyCcy);
+  if (!handle?.sign) {
+    addLog("error", "청구 실패", `[${policyCcy}] 컨트랙트 연결 필요`);
     showToast("컨트랙트를 먼저 연결하세요.", "warning"); return;
   }
 
-  const policyId = el("claimPolicyId").value;
-  const amountRaw = el("claimAmount").value;
-  const amount   = parseUsdc(amountRaw);
-  const code     = el("claimCode").value.trim();
-  const desc     = el("claimDesc").value.trim();
+  const amountInputRaw = el("claimAmount").value;
+  const displayAmount  = parseUsdc(amountInputRaw); // 현재 화면(currencyMode) 단위로 입력한 값
+  const amount = convertRawAmount(displayAmount, currencyMode, policyCcy); // 실제 증권 통화로 환산
+  const code   = el("claimCode").value.trim();
+  const desc   = el("claimDesc").value.trim();
 
+  const crossCcyNote = policyCcy !== currencyMode
+    ? `\n※ 이 증권은 [${policyCcy}] 계약이라 입력하신 ${fmtByCcy(displayAmount, currencyMode)}을(를) ${fmtByCcy(amount, policyCcy)}(으)로 환산해 전송합니다.`
+    : "";
   addLog("info", "청구 입력값 확인",
-    `증권 ID  : ${policyId || "(미선택)"}\n청구금액 : ${amountRaw} → ${fmtUsdc(amount)}\n치료코드 : ${code || "(미선택)"}\n설명     : ${desc || "(없음)"}`);
+    `증권    : [${policyCcy}] #${policyId}\n청구금액: ${amountInputRaw} → ${fmtByCcy(amount, policyCcy)}${crossCcyNote}\n치료코드: ${code || "(미선택)"}\n설명    : ${desc || "(없음)"}`);
 
-  if (!policyId) {
-    addLog("error", "청구 입력 오류", "증권이 선택되지 않았습니다."); showToast("증권을 선택하세요.", "warning"); return;
-  }
   if (amount <= 0n) {
-    addLog("error", "청구 입력 오류", `금액 0 이하: "${amountRaw}"`); showToast("청구 금액을 입력하세요.", "warning"); return;
+    addLog("error", "청구 입력 오류", `금액 0 이하: "${amountInputRaw}"`); showToast("청구 금액을 입력하세요.", "warning"); return;
   }
   if (!code) {
     addLog("error", "청구 입력 오류", "치료 코드가 선택되지 않았습니다."); showToast("치료 코드를 선택하세요.", "warning"); return;
   }
 
-  // 증권 정보 확인
+  // 증권 정보 확인 (항상 그 증권이 실제로 속한 통화 컨트랙트 기준)
   try {
-    addLog("call", `getPolicy(${policyId}) 조회 중...`);
-    const policy = await insCtx.getPolicy(policyId);
+    addLog("call", `[${policyCcy}] getPolicy(${policyId}) 조회 중...`);
+    const policy = await handle.ctx.getPolicy(policyId);
     const remaining = policy.coverageLimit - policy.totalClaimed;
     addLog("info", "청구 전 증권 상태 확인",
-      `피보험자  : ${policy.patientName}\n누적납입  : ${fmtUsdc(policy.totalPaid)}\n보장한도  : ${fmtUsdc(policy.coverageLimit)}\n누적지급액: ${fmtUsdc(policy.totalClaimed)}\n잔여한도  : ${fmtUsdc(remaining)}\n청구금액  : ${fmtUsdc(amount)}\n한도초과  : ${amount > remaining ? "❌ 초과 (거절됨)" : "✅ 범위내"}\n납입여부  : ${policy.totalPaid > 0n ? "✅ 납입 이력 있음" : "❌ 납입 이력 없음 (청구 불가)"}`);
+      `피보험자  : ${policy.patientName}\n누적납입  : ${fmtByCcy(policy.totalPaid, policyCcy)}\n보장한도  : ${fmtByCcy(policy.coverageLimit, policyCcy)}\n누적지급액: ${fmtByCcy(policy.totalClaimed, policyCcy)}\n잔여한도  : ${fmtByCcy(remaining, policyCcy)}\n청구금액  : ${fmtByCcy(amount, policyCcy)}\n한도초과  : ${amount > remaining ? "❌ 초과 (거절됨)" : "✅ 범위내"}\n납입여부  : ${policy.totalPaid > 0n ? "✅ 납입 이력 있음" : "❌ 납입 이력 없음 (청구 불가)"}`);
 
     if (policy.totalPaid === 0n) {
       addLog("error", "청구 불가: 납입 이력 없음",
@@ -1683,7 +1812,7 @@ async function submitClaim() {
     }
     if (amount > remaining) {
       addLog("error", "청구 불가: 보장 한도 초과",
-        `청구금액 ${fmtUsdc(amount)} > 잔여한도 ${fmtUsdc(remaining)} (보장한도 ${fmtUsdc(policy.coverageLimit)} - 누적지급액 ${fmtUsdc(policy.totalClaimed)})`);
+        `청구금액 ${fmtByCcy(amount, policyCcy)} > 잔여한도 ${fmtByCcy(remaining, policyCcy)} (보장한도 ${fmtByCcy(policy.coverageLimit, policyCcy)} - 누적지급액 ${fmtByCcy(policy.totalClaimed, policyCcy)})`);
       showToast("보장 한도를 초과하는 금액입니다.", "error"); return;
     }
   } catch (err) {
@@ -1691,8 +1820,8 @@ async function submitClaim() {
   }
 
   await sendTx(
-    async () => insSign.submitClaim(policyId, amount, code, desc || ""),
-    `보험금 청구: 증권 #${policyId} - ${fmtUsdc(amount)} (${code})`,
+    async () => handle.sign.submitClaim(policyId, amount, code, desc || ""),
+    `보험금 청구: [${policyCcy}] 증권 #${policyId} - ${fmtByCcy(amount, policyCcy)} (${code})`,
     async () => {
       el("claimAmount").value = "";
       el("claimDesc").value   = "";
@@ -1706,15 +1835,17 @@ async function submitClaim() {
 async function refreshClaimCoverageInfo() {
   const box = el("claimCoverageInfo");
   if (!box) return;
-  const policyId = el("claimPolicyId")?.value;
-  if (!policyId || !insCtx) { box.style.display = "none"; return; }
+  const composite = parseCompositeId(el("claimPolicyId")?.value);
+  if (!composite) { box.style.display = "none"; return; }
+  const handle = getContractsForCcy(composite.ccy);
+  if (!handle?.ctx) { box.style.display = "none"; return; }
 
   try {
-    const policy = await insCtx.getPolicy(policyId);
+    const policy = await handle.ctx.getPolicy(composite.id);
     const available = policy.coverageLimit - policy.totalClaimed;
-    el("claimCoverageLimit").textContent = fmtUsdc(policy.coverageLimit);
-    el("claimTotalClaimed").textContent  = fmtUsdc(policy.totalClaimed);
-    el("claimAvailable").textContent     = fmtUsdc(available);
+    el("claimCoverageLimit").textContent = fmtByCcy(policy.coverageLimit, composite.ccy);
+    el("claimTotalClaimed").textContent  = fmtByCcy(policy.totalClaimed, composite.ccy);
+    el("claimAvailable").textContent     = fmtByCcy(available, composite.ccy);
     box.style.display = "block";
   } catch (err) {
     box.style.display = "none";
@@ -1722,54 +1853,65 @@ async function refreshClaimCoverageInfo() {
   }
 }
 
+async function fetchAllClaimsBothCcy() {
+  const handles = [getContractsForCcy('USDC'), getContractsForCcy('KRW')].filter(h => h && h.ctx);
+  const lists = await Promise.all(handles.map(async (h) => {
+    try {
+      const ids = await h.ctx.getAllClaimIds();
+      const [claims, oracleVerifs] = await Promise.all([
+        Promise.all(ids.map(id => h.ctx.getClaim(id))),
+        Promise.all(ids.map(id => h.ctx.getOracleVerification(id).catch(() => null)))
+      ]);
+      return claims.map((c, i) => ({ c, ov: oracleVerifs[i], ccy: h.ccy }));
+    } catch (e) {
+      addLog("error", `[${h.ccy}] 청구 목록 조회 실패`, e.message);
+      return [];
+    }
+  }));
+  return lists.flat();
+}
+
 async function refreshClaims() {
   if (!insCtx) return;
   try {
-    const ids = await insCtx.getAllClaimIds();
-    addLog("call", `청구 목록 조회: ${ids.length}건`);
+    let rows = await fetchAllClaimsBothCcy();
+    addLog("call", `청구 목록 조회 (USDC+KRW 통합): ${rows.length}건`);
     const tbody = el("claimTableBody");
     if (!tbody) return;
-    if (ids.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="9" class="text-center" style="color:var(--text-muted);padding:30px">청구 내역이 없습니다</td></tr>`;
-      return;
-    }
-    const [claims, oracleVerifs] = await Promise.all([
-      Promise.all(ids.map(id => insCtx.getClaim(id))),
-      Promise.all(ids.map(id => insCtx.getOracleVerification(id).catch(() => null)))
-    ]);
-    let rows = claims.map((c, i) => ({ c, ov: oracleVerifs[i] }));
     if (!isOwner) {
       rows = rows.filter(({ c }) => c.patient.toLowerCase() === userAddr?.toLowerCase());
     }
     if (rows.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="9" class="text-center" style="color:var(--text-muted);padding:30px">청구 내역이 없습니다</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="10" class="text-center" style="color:var(--text-muted);padding:30px">청구 내역이 없습니다</td></tr>`;
       return;
     }
-    tbody.innerHTML = rows.map(({ c, ov }) => {
+    tbody.innerHTML = rows.map(({ c, ov, ccy }) => {
       const statusIdx = Number(c.status);
       const isMine    = c.patient.toLowerCase() === userAddr?.toLowerCase();
       const isOracle  = ov && ov.exists;
+      const cid       = compositeId(ccy, c.id);
       const oracleBadge = isOracle
         ? `<span style="font-size:10px;background:${ov.approved ? "rgba(35,134,54,0.15)" : "rgba(218,54,51,0.15)"};color:${ov.approved ? "var(--accent-green)" : "var(--accent-red)"};padding:1px 5px;border-radius:3px;margin-left:4px" title="오라클 검증: ${ov.verificationCode}&#10;병원: ${ov.hospitalName}">🏥 ${ov.approved ? "오라클승인" : "오라클거절"}</span>`
         : "";
       return `
       <tr ${isMine ? 'style="background:rgba(47,129,247,0.04)"' : ""}>
         <td><strong>#${c.id}</strong></td>
+        <td><span class="badge" style="background:${ccy === 'KRW' ? 'rgba(255,159,10,0.15)' : 'rgba(47,129,247,0.15)'};color:${ccy === 'KRW' ? 'var(--accent-yellow)' : 'var(--accent-blue)'}">${ccy}</span></td>
         <td>#${c.policyId}</td>
         <td class="addr-short" title="${c.patient}">${shortAddr(c.patient)} ${isMine ? '<span style="color:var(--accent-blue);font-size:10px">(나)</span>' : ""}</td>
-        <td class="text-right" style="color:var(--accent-yellow)">${fmtUsdc(c.amount)}</td>
+        <td class="text-right" style="color:var(--accent-yellow)">${fmtByCcy(c.amount, ccy)}<div style="font-size:10px;color:var(--text-muted)">${convertedAmountLabel(c.amount, ccy)}</div></td>
         <td><code style="font-size:11px">${c.treatmentCode}</code></td>
         <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.description}">${c.description || "-"}</td>
         <td><span class="badge ${CLAIM_STATUS_CLASS[statusIdx]}">${CLAIM_STATUS[statusIdx]}</span>${oracleBadge}</td>
         <td style="font-size:11px;color:var(--text-muted)">${tsToDate(c.submittedAt)}</td>
         <td>
           ${isOwner && statusIdx === 0 ? `
-            <button class="btn btn-success btn-sm" onclick="approveClaim(${c.id})">승인</button>
-            <button class="btn btn-danger btn-sm" onclick="rejectClaimPrompt(${c.id})" style="margin-left:4px">거절</button>` : ""}
+            <button class="btn btn-success btn-sm" onclick="approveClaim('${cid}')">승인</button>
+            <button class="btn btn-danger btn-sm" onclick="rejectClaimPrompt('${cid}')" style="margin-left:4px">거절</button>` : ""}
           ${isOwner && statusIdx === 1 ? `
-            <button class="btn btn-primary btn-sm" onclick="payClaim(${c.id})">💰 지급</button>` : ""}
+            <button class="btn btn-primary btn-sm" onclick="payClaim('${cid}')">💰 지급</button>` : ""}
           ${statusIdx === 2 && c.rejectReason ? `<span style="font-size:11px;color:var(--accent-red)" title="${c.rejectReason}">사유있음</span>` : ""}
-          ${isOracle ? `<button class="btn btn-sm" style="font-size:10px;background:rgba(130,80,255,0.15);color:#a78bfa;margin-left:2px" onclick="showOracleDetail(${c.id})">상세</button>` : ""}
+          ${isOracle ? `<button class="btn btn-sm" style="font-size:10px;background:rgba(130,80,255,0.15);color:#a78bfa;margin-left:2px" onclick="showOracleDetail('${cid}')">상세</button>` : ""}
         </td>
       </tr>`;
     }).join("");
@@ -1781,70 +1923,88 @@ async function refreshClaims() {
 // ═══════════════════════════════════════════════════════════════
 //  관리자 기능
 // ═══════════════════════════════════════════════════════════════
-async function approveClaim(claimId) {
-  addLog("step", `[청구 승인] 청구 #${claimId}`);
-  if (!confirm(`청구 #${claimId}를 승인하시겠습니까?`)) {
+async function approveClaim(claimIdOrComposite) {
+  const parsed = parseCompositeId(claimIdOrComposite);
+  const ccy     = parsed ? parsed.ccy : currencyMode;
+  const claimId = parsed ? parsed.id  : claimIdOrComposite;
+  const handle  = getContractsForCcy(ccy);
+  if (!handle?.sign) { showToast("컨트랙트를 먼저 연결하세요.", "warning"); return; }
+
+  addLog("step", `[청구 승인] [${ccy}] 청구 #${claimId}`);
+  if (!confirm(`[${ccy}] 청구 #${claimId}를 승인하시겠습니까?`)) {
     addLog("info", `청구 #${claimId} 승인 취소됨`); return;
   }
 
   // 청구 정보 사전 확인
   try {
-    const claim = await insCtx.getClaim(claimId);
+    const claim = await handle.ctx.getClaim(claimId);
     addLog("info", `청구 #${claimId} 정보 확인`,
-      `청구자   : ${claim.patient}\n청구금액 : ${fmtUsdc(claim.amount)}\n치료코드 : ${claim.treatmentCode}\n현재상태 : ${CLAIM_STATUS[Number(claim.status)]}`);
+      `청구자   : ${claim.patient}\n청구금액 : ${fmtByCcy(claim.amount, ccy)}\n치료코드 : ${claim.treatmentCode}\n현재상태 : ${CLAIM_STATUS[Number(claim.status)]}`);
     if (Number(claim.status) !== 0) {
       addLog("error", "승인 불가",
         `청구 #${claimId} 현재 상태: "${CLAIM_STATUS[Number(claim.status)]}"\n→ 대기중(Pending) 상태만 승인 가능합니다.`);
       showToast("대기중 상태의 청구만 승인 가능합니다.", "error"); return;
     }
     // 보장한도 잔여액 확인 (실제 차감은 지급 시점에 검증되지만 미리 안내)
-    const policy    = await insCtx.getPolicy(claim.policyId);
+    const policy    = await handle.ctx.getPolicy(claim.policyId);
     const remaining = policy.coverageLimit - policy.totalClaimed;
     addLog("info", "보장한도 확인",
-      `보장한도   : ${fmtUsdc(policy.coverageLimit)}\n누적지급액 : ${fmtUsdc(policy.totalClaimed)}\n잔여한도   : ${fmtUsdc(remaining)}\n이 청구금액: ${fmtUsdc(claim.amount)}\n한도초과여부: ${claim.amount > remaining ? "⚠️ 초과 (지급 단계에서 revert 예상)" : "✅ 범위내"}`);
+      `보장한도   : ${fmtByCcy(policy.coverageLimit, ccy)}\n누적지급액 : ${fmtByCcy(policy.totalClaimed, ccy)}\n잔여한도   : ${fmtByCcy(remaining, ccy)}\n이 청구금액: ${fmtByCcy(claim.amount, ccy)}\n한도초과여부: ${claim.amount > remaining ? "⚠️ 초과 (지급 단계에서 revert 예상)" : "✅ 범위내"}`);
     // 보험사 잔액 사전 확인
-    const contractBal = await insCtx.getContractBalance();
+    const contractBal = await handle.ctx.getContractBalance();
     addLog("info", "보험사 잔액 확인",
-      `보험사 잔액   : ${fmtUsdc(contractBal)}\n청구 금액      : ${fmtUsdc(claim.amount)}\n지급 가능 여부 : ${contractBal >= claim.amount ? "✅ 가능" : "⚠️ 잔액 부족 (지급 단계에서 실패 가능)"}`);
+      `보험사 잔액   : ${fmtByCcy(contractBal, ccy)}\n청구 금액      : ${fmtByCcy(claim.amount, ccy)}\n지급 가능 여부 : ${contractBal >= claim.amount ? "✅ 가능" : "⚠️ 잔액 부족 (지급 단계에서 실패 가능)"}`);
   } catch (err) {
     addLog("error", "청구 사전 확인 실패", parseError(err));
   }
 
   await sendTx(
-    async () => insSign.approveClaim(claimId),
-    `청구 #${claimId} 승인`,
+    async () => handle.sign.approveClaim(claimId),
+    `[${ccy}] 청구 #${claimId} 승인`,
     async () => refreshAll()
   );
 }
 
-async function rejectClaimPrompt(claimId) {
-  addLog("step", `[청구 거절] 청구 #${claimId}`);
-  const reason = prompt(`청구 #${claimId} 거절 사유를 입력하세요:`);
+async function rejectClaimPrompt(claimIdOrComposite) {
+  const parsed = parseCompositeId(claimIdOrComposite);
+  const ccy     = parsed ? parsed.ccy : currencyMode;
+  const claimId = parsed ? parsed.id  : claimIdOrComposite;
+  const handle  = getContractsForCcy(ccy);
+  if (!handle?.sign) { showToast("컨트랙트를 먼저 연결하세요.", "warning"); return; }
+
+  addLog("step", `[청구 거절] [${ccy}] 청구 #${claimId}`);
+  const reason = prompt(`[${ccy}] 청구 #${claimId} 거절 사유를 입력하세요:`);
   if (!reason) {
     addLog("info", `청구 #${claimId} 거절 취소됨`); return;
   }
   addLog("info", `거절 사유 입력됨: "${reason}"`);
   await sendTx(
-    async () => insSign.rejectClaim(claimId, reason),
-    `청구 #${claimId} 거절 (사유: ${reason})`,
+    async () => handle.sign.rejectClaim(claimId, reason),
+    `[${ccy}] 청구 #${claimId} 거절 (사유: ${reason})`,
     async () => refreshClaims()
   );
 }
 
-async function payClaim(claimId) {
-  addLog("step", `[보험금 지급] 청구 #${claimId}`);
-  if (!confirm(`청구 #${claimId}에 대한 보험금을 지급하시겠습니까?`)) {
+async function payClaim(claimIdOrComposite) {
+  const parsed = parseCompositeId(claimIdOrComposite);
+  const ccy     = parsed ? parsed.ccy : currencyMode;
+  const claimId = parsed ? parsed.id  : claimIdOrComposite;
+  const handle  = getContractsForCcy(ccy);
+  if (!handle?.sign) { showToast("컨트랙트를 먼저 연결하세요.", "warning"); return; }
+
+  addLog("step", `[보험금 지급] [${ccy}] 청구 #${claimId}`);
+  if (!confirm(`[${ccy}] 청구 #${claimId}에 대한 보험금을 지급하시겠습니까?`)) {
     addLog("info", `청구 #${claimId} 지급 취소됨`); return;
   }
 
   // 사전 확인
   try {
-    const claim       = await insCtx.getClaim(claimId);
-    const policy      = await insCtx.getPolicy(claim.policyId);
+    const claim       = await handle.ctx.getClaim(claimId);
+    const policy      = await handle.ctx.getPolicy(claim.policyId);
     const remaining   = policy.coverageLimit - policy.totalClaimed;
-    const contractBal = await insCtx.getContractBalance();
+    const contractBal = await handle.ctx.getContractBalance();
     addLog("info", `지급 전 확인 (청구 #${claimId})`,
-      `수령자        : ${claim.patient}\n청구금액      : ${fmtUsdc(claim.amount)}\n보장한도      : ${fmtUsdc(policy.coverageLimit)}\n누적지급액    : ${fmtUsdc(policy.totalClaimed)}\n잔여한도      : ${fmtUsdc(remaining)}\n한도초과여부  : ${claim.amount > remaining ? "⚠️ 초과 → TX 실패 예상" : "✅ 범위내"}\n보험사잔액    : ${fmtUsdc(contractBal)}\n지급가능여부  : ${contractBal >= claim.amount ? "✅ 가능" : "❌ 잔액 부족 → TX 실패 예상"}\n현재상태      : ${CLAIM_STATUS[Number(claim.status)]}`);
+      `수령자        : ${claim.patient}\n청구금액      : ${fmtByCcy(claim.amount, ccy)}\n보장한도      : ${fmtByCcy(policy.coverageLimit, ccy)}\n누적지급액    : ${fmtByCcy(policy.totalClaimed, ccy)}\n잔여한도      : ${fmtByCcy(remaining, ccy)}\n한도초과여부  : ${claim.amount > remaining ? "⚠️ 초과 → TX 실패 예상" : "✅ 범위내"}\n보험사잔액    : ${fmtByCcy(contractBal, ccy)}\n지급가능여부  : ${contractBal >= claim.amount ? "✅ 가능" : "❌ 잔액 부족 → TX 실패 예상"}\n현재상태      : ${CLAIM_STATUS[Number(claim.status)]}`);
     if (Number(claim.status) !== 1) {
       addLog("error", "지급 불가",
         `청구 #${claimId} 현재 상태: "${CLAIM_STATUS[Number(claim.status)]}"\n→ 승인됨(Approved) 상태만 지급 가능합니다.`);
@@ -1852,12 +2012,12 @@ async function payClaim(claimId) {
     }
     if (claim.amount > remaining) {
       addLog("error", "보장한도 초과",
-        `청구금액 ${fmtUsdc(claim.amount)} > 잔여한도 ${fmtUsdc(remaining)} (보장한도 ${fmtUsdc(policy.coverageLimit)} - 누적지급액 ${fmtUsdc(policy.totalClaimed)})`);
+        `청구금액 ${fmtByCcy(claim.amount, ccy)} > 잔여한도 ${fmtByCcy(remaining, ccy)} (보장한도 ${fmtByCcy(policy.coverageLimit, ccy)} - 누적지급액 ${fmtByCcy(policy.totalClaimed, ccy)})`);
       showToast("보장 한도를 초과하는 청구입니다.", "error"); return;
     }
     if (contractBal < claim.amount) {
       addLog("error", "보험사 잔액 부족",
-        `필요: ${fmtUsdc(claim.amount)}\n보유: ${fmtUsdc(contractBal)}\n→ 관리자 패널 > 준비금 입금에서 먼저 입금하세요.`);
+        `필요: ${fmtByCcy(claim.amount, ccy)}\n보유: ${fmtByCcy(contractBal, ccy)}\n→ 관리자 패널 > 준비금 입금에서 먼저 입금하세요.`);
       showToast("보험사 잔액이 부족합니다. 준비금을 먼저 입금하세요.", "error"); return;
     }
   } catch (err) {
@@ -1865,21 +2025,26 @@ async function payClaim(claimId) {
   }
 
   await sendTx(
-    async () => insSign.payClaim(claimId),
-    `청구 #${claimId} 보험금 지급`,
+    async () => handle.sign.payClaim(claimId),
+    `[${ccy}] 청구 #${claimId} 보험금 지급`,
     async () => { await Promise.all([refreshClaims(), refreshStats()]); }
   );
 }
 
 // ── Oracle 상세 팝업 ────────────────────────────────────────────
-async function showOracleDetail(claimId) {
+async function showOracleDetail(claimIdOrComposite) {
+  const parsed  = parseCompositeId(claimIdOrComposite);
+  const ccy     = parsed ? parsed.ccy : currencyMode;
+  const claimId = parsed ? parsed.id  : claimIdOrComposite;
+  const handle  = getContractsForCcy(ccy);
+  if (!handle?.ctx) { showToast("컨트랙트를 먼저 연결하세요.", "warning"); return; }
   try {
     const [claim, ov] = await Promise.all([
-      insCtx.getClaim(claimId),
-      insCtx.getOracleVerification(claimId)
+      handle.ctx.getClaim(claimId),
+      handle.ctx.getOracleVerification(claimId)
     ]);
     const lines = [
-      `청구 #${claimId} 오라클 검증 결과`,
+      `[${ccy}] 청구 #${claimId} 오라클 검증 결과`,
       `─────────────────────────────`,
       `결과       : ${ov.approved ? "✅ 승인 (자동 지급)" : "❌ 거절"}`,
       `병원명     : ${ov.hospitalName || "-"}`,
@@ -1888,7 +2053,7 @@ async function showOracleDetail(claimId) {
       `데이터 해시: ${ov.dataHash}`,
       `─────────────────────────────`,
       `치료 코드  : ${claim.treatmentCode}`,
-      `청구 금액  : ${fmtUsdc(claim.amount)}`,
+      `청구 금액  : ${fmtByCcy(claim.amount, ccy)}`,
       `청구 상태  : ${CLAIM_STATUS[Number(claim.status)]}`,
     ];
     if (!ov.approved) lines.push(`거절 사유  : ${claim.rejectReason}`);
@@ -1936,10 +2101,12 @@ async function adminRejectClaim() {
   const reason = el("adminRejectReason").value.trim();
   if (!id)     { addLog("error", "청구 ID 없음", ""); showToast("청구 ID를 입력하세요.", "warning"); return; }
   if (!reason) { addLog("error", "거절 사유 없음", ""); showToast("거절 사유를 입력하세요.", "warning"); return; }
-  addLog("step", `[관리자 패널] 청구 #${id} 거절 - 사유: ${reason}`);
+  const handle = getContractsForCcy(currencyMode);
+  if (!handle?.sign) { showToast("컨트랙트를 먼저 연결하세요.", "warning"); return; }
+  addLog("step", `[관리자 패널] [${currencyMode}] 청구 #${id} 거절 - 사유: ${reason}`);
   await sendTx(
-    async () => insSign.rejectClaim(parseInt(id), reason),
-    `청구 #${id} 거절 (사유: ${reason})`,
+    async () => handle.sign.rejectClaim(parseInt(id), reason),
+    `[${currencyMode}] 청구 #${id} 거절 (사유: ${reason})`,
     async () => refreshClaims()
   );
 }
