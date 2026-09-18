@@ -42,6 +42,16 @@ SETUP.md                 새 PC 1회성 설치 가이드 (프로그램, MetaMask
   정적 상품이며, `web_app.py`의 mock `dental` 분기와 `agents/orchestrator.py`의
   시스템 프롬프트(상담 원칙 7번) 양쪽에서 "블록체인"을 명시하지 않은 일반 덴탈보험
   질문에도 항상 포함되도록 강제하고 있음.
+- **챗봇 → 블록체인 실시간 조회** (`get_blockchain_dental_status` 도구): 위 두 항목이
+  "챗봇이 블록체인 앱을 실행시켜주는 것"까지였다면, 이건 챗봇이 실제 온체인 데이터를
+  읽어 자연어로 답하는 것. `insurance_agent/tools/blockchain_tool.py`가
+  `blockchain-dental/scripts/query-policy.js`(신규, 읽기 전용)를 subprocess로 호출해
+  JSON을 받아온다 — Python에 web3 등 새 의존성을 추가하지 않고 이미 있는 ethers.js
+  스택을 그대로 재사용하기 위함. 지갑 주소는 챗봇 화면의 "⛓️ 블록체인 덴탈보험 조회"
+  패널(`/api/blockchain/wallet`)에 한 번 등록하면 그 브라우저 탭(session_id) 동안
+  `InsuranceChatbot.wallet_address`에 저장되어 매번 물어보지 않음. 이 패널은 상품
+  비교표에 블록체인 상품이 뜨면 살짝 펼쳐지고, "⛓️ 블록체인 가입 시작" 버튼을
+  누르면 강조 표시된다(`revealBlockchainQueryPanel()`).
 
 ## 알아두면 좋은 것들
 

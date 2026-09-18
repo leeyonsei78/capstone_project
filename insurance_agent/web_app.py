@@ -556,6 +556,30 @@ HTML = r"""<!DOCTYPE html>
   }
   .qbtn:hover { background: #dbeafe; border-color: #2563eb; color: #1d4ed8; }
 
+  /* 블록체인 보험 조회 패널 */
+  .blockchain-query-panel {
+    margin: 0 16px 12px; padding: 10px 14px;
+    background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px;
+    transition: box-shadow 0.3s, border-color 0.3s;
+  }
+  .blockchain-query-panel summary {
+    cursor: pointer; font-size: 13px; font-weight: 600; color: #0369a1;
+    list-style: none;
+  }
+  .blockchain-query-panel summary::-webkit-details-marker { display: none; }
+  .blockchain-query-panel summary::before { content: '▶ '; font-size: 10px; }
+  .blockchain-query-panel[open] summary::before { content: '▼ '; }
+  .bc-panel-highlight {
+    border-color: #0ea5e9 !important;
+    box-shadow: 0 0 0 3px rgba(14,165,233,0.25);
+  }
+  .bc-query-body { margin-top: 10px; }
+  .bc-wallet-row { display: flex; gap: 8px; }
+  .bc-wallet-row input {
+    flex: 1; border: 1px solid #bae6fd; border-radius: 8px;
+    padding: 6px 10px; font-size: 12px; font-family: monospace;
+  }
+
   /* Input area */
   .input-area {
     background: white;
@@ -1555,6 +1579,24 @@ HTML = r"""<!DOCTYPE html>
     <button class="qbtn" onclick="quickSend('45세 남성 보험 포트폴리오 추천해줘')">포트폴리오 추천</button>
     <button class="qbtn" onclick="quickSend('실손보험 4세대 5세대 차이 알려줘')">4세대 vs 5세대</button>
   </div>
+
+  <details class="blockchain-query-panel" id="blockchainQueryPanel">
+    <summary>⛓️ 블록체인 덴탈보험 조회 (이미 가입하신 분만 해당)</summary>
+    <div class="bc-query-body">
+      <div class="bc-wallet-row">
+        <input type="text" id="bcWalletInput" placeholder="가입한 MetaMask 지갑 주소 (0x...) — 한 번만 등록하면 계속 기억합니다">
+        <button class="qbtn" onclick="registerBcWallet()">등록</button>
+      </div>
+      <div id="bcWalletStatus" style="font-size:11px;color:#64748b;margin:6px 0 10px"></div>
+      <div class="quick-buttons" style="padding:0">
+        <button class="qbtn" onclick="quickSend('내 블록체인 치아보험 계약 상태 알려줘')">📋 계약 상태</button>
+        <button class="qbtn" onclick="quickSend('보험금 청구가 지급됐는지 확인해줘')">💰 보험금 지급 상태</button>
+        <button class="qbtn" onclick="quickSend('이번 달 보험료 납입했는지 확인해줘')">💳 보험료 납입 상태</button>
+        <button class="qbtn" onclick="quickSend('내 보험 만기가 언제인지 알려줘')">💎 만기 조회</button>
+      </div>
+    </div>
+  </details>
+
   <div class="input-area">
     <button class="reset-btn" onclick="resetChat()" title="대화 초기화">🔄</button>
     <textarea id="input" placeholder="보험에 대해 무엇이든 물어보세요..." rows="1"
@@ -2847,6 +2889,7 @@ const TOOL_LABELS = {
   search_web:                      '🌐 웹 검색 중...',
   fetch_webpage:                   '📄 페이지 읽는 중...',
   get_credit_score:                '💳 신용점수 조회 중...',
+  get_blockchain_dental_status:    '⛓️ 블록체인 실시간 조회 중...',
   _news_search:                    '📰 관련 뉴스 검색 중...',
   assess_cancer_survivor:          '🔬 암 완치자 인수 심사 중... [시나리오 1]',
   assess_low_risk_discount:        '📉 AI 저위험군 할인 분석 중... [시나리오 2]',
@@ -3037,6 +3080,65 @@ function quickSend(text) {
   sendMessage();
 }
 
+// ── 블록체인 보험 조회 패널 ──────────────────────────────────
+function registerBcWallet() {
+  const input  = document.getElementById('bcWalletInput');
+  const status = document.getElementById('bcWalletStatus');
+  const addr   = (input.value || '').trim();
+
+  if (addr && !/^0x[0-9a-fA-F]{40}$/.test(addr)) {
+    status.textContent = '⚠️ 올바른 지갑 주소 형식이 아닙니다 (0x로 시작하는 42자).';
+    status.style.color = '#dc2626';
+    return;
+  }
+
+  fetch('/api/blockchain/wallet', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: SESSION_ID, wallet_address: addr }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        status.textContent = '⚠️ ' + data.error;
+        status.style.color = '#dc2626';
+        return;
+      }
+      status.textContent = addr
+        ? '✅ 등록됨: ' + addr.slice(0, 6) + '...' + addr.slice(-4) + ' — 이제 "내 계약 상태" 같은 질문에 바로 답할 수 있어요.'
+        : '지갑 주소 등록이 초기화되었습니다.';
+      status.style.color = '#16a34a';
+      try { localStorage.setItem('bcWalletAddress', addr); } catch (_) {}
+    })
+    .catch(() => {
+      status.textContent = '⚠️ 등록 요청에 실패했습니다.';
+      status.style.color = '#dc2626';
+    });
+}
+
+// 블록체인 상품이 추천/선택되는 시점에 조회 패널을 펼치고 잠깐 강조 표시한다.
+function revealBlockchainQueryPanel(highlight) {
+  const panel = document.getElementById('blockchainQueryPanel');
+  if (!panel) return;
+  panel.open = true;
+  if (highlight) {
+    panel.classList.add('bc-panel-highlight');
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    setTimeout(() => panel.classList.remove('bc-panel-highlight'), 3000);
+  }
+}
+
+// 페이지 로드 시, 이전에 등록해둔 지갑 주소가 있으면(이 브라우저 한정) 자동 복원
+window.addEventListener('load', () => {
+  try {
+    const saved = localStorage.getItem('bcWalletAddress');
+    if (saved) {
+      const input = document.getElementById('bcWalletInput');
+      if (input) { input.value = saved; registerBcWallet(); }
+    }
+  } catch (_) {}
+});
+
 function handleKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -3214,6 +3316,8 @@ function addLinksToTables(htmlStr) {
         btn.setAttribute('onclick', 'startBlockchainEnrollment(this)');
         td.appendChild(btn);
         row.appendChild(td);
+        // 블록체인 상품이 추천 목록에 뜬 시점 — 조회 패널을 살짝 펼쳐서 존재를 알림 (강조는 안 함)
+        revealBlockchainQueryPanel(false);
         return;
       }
 
@@ -3270,6 +3374,8 @@ function hideBlockchainBanner() {
 function startBlockchainEnrollment(btn) {
   if (btn) { btn.disabled = true; btn.textContent = '⛓️ 준비 중...'; }
   showBlockchainBanner('⛓️ 블록체인 덴탈보험 가입 절차를 시작합니다...');
+  // 사용자가 실제로 블록체인 상품을 선택한 시점 — 조회 패널을 펼치고 강조 표시
+  revealBlockchainQueryPanel(true);
 
   fetch('/api/blockchain/dental/enroll', { method: 'POST' })
     .then(() => pollBlockchainStatus(btn))
@@ -5646,7 +5752,7 @@ def chat():
         return jsonify({'error': '메시지가 비어있습니다.'}), 400
 
     if sid not in sessions:
-        sessions[sid] = {'context': MockContext(), 'chatbot': None}
+        sessions[sid] = {'context': MockContext(), 'chatbot': None, 'wallet_address': None}
 
     sess = sessions[sid]
 
@@ -5659,6 +5765,7 @@ def chat():
             if sess['chatbot'] is None:
                 from agents.orchestrator import InsuranceChatbot
                 sess['chatbot'] = InsuranceChatbot()
+                sess['chatbot'].wallet_address = sess.get('wallet_address')
             response = sess['chatbot'].chat(message)
             return jsonify({'response': response, 'mode': 'live'})
         except Exception as e:
@@ -5690,7 +5797,7 @@ def chat_stream():
         return jsonify({'error': '메시지가 비어있습니다.'}), 400
 
     if sid not in sessions:
-        sessions[sid] = {'context': MockContext(), 'chatbot': None}
+        sessions[sid] = {'context': MockContext(), 'chatbot': None, 'wallet_address': None}
 
     sess = sessions[sid]
     api_live = _check_api_live()
@@ -5702,6 +5809,7 @@ def chat_stream():
                 if sess['chatbot'] is None:
                     from agents.orchestrator import InsuranceChatbot
                     sess['chatbot'] = InsuranceChatbot()
+                    sess['chatbot'].wallet_address = sess.get('wallet_address')
                 for event in sess['chatbot'].stream_chat(message):
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 return
@@ -5731,8 +5839,30 @@ def chat_stream():
 def reset():
     sid = request.json.get('session_id', 'default')
     if sid in sessions:
-        sessions[sid] = {'context': MockContext(), 'chatbot': None}
+        # 대화 내용만 초기화 — 등록해둔 지갑 주소는 "기기/사용자 설정"에 가까우므로 유지
+        prev_wallet = sessions[sid].get('wallet_address')
+        sessions[sid] = {'context': MockContext(), 'chatbot': None, 'wallet_address': prev_wallet}
     return jsonify({'status': 'ok'})
+
+
+@app.route('/api/blockchain/wallet', methods=['POST'])
+def set_blockchain_wallet():
+    """챗봇이 get_blockchain_dental_status 도구를 쓸 때 매번 물어보지 않도록,
+    이 브라우저 탭(session_id)에 지갑 주소를 등록해둔다."""
+    data = request.json or {}
+    sid = data.get('session_id', 'default')
+    wallet_address = (data.get('wallet_address') or '').strip()
+
+    if wallet_address and not re.match(r'^0x[0-9a-fA-F]{40}$', wallet_address):
+        return jsonify({'error': '올바른 지갑 주소 형식이 아닙니다 (0x로 시작하는 42자).'}), 400
+
+    if sid not in sessions:
+        sessions[sid] = {'context': MockContext(), 'chatbot': None, 'wallet_address': None}
+    sessions[sid]['wallet_address'] = wallet_address or None
+    if sessions[sid].get('chatbot') is not None:
+        sessions[sid]['chatbot'].wallet_address = wallet_address or None
+
+    return jsonify({'status': 'ok', 'wallet_address': wallet_address or None})
 
 
 # ── DIOBIO 카카오 채널 설정 ────────────────────────────────────

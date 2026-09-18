@@ -52,6 +52,7 @@ from tools.health_credit_tool import (
     assess_adverse_selection_score,
     assess_thin_filer_adverse_selection,
 )
+from tools.blockchain_tool import get_blockchain_dental_status
 
 # ───────────────────────────────────────────
 # 도구 정의 (OpenAI 형식)
@@ -366,6 +367,34 @@ TOOLS = [
                     },
                 },
                 "required": ["request"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_blockchain_dental_status",
+            "description": (
+                "사용자가 이미 가입한 블록체인 덴탈보험(라이나생명 블록체인치아보험)의 "
+                "실시간 온체인 현황을 조회합니다. 계약(증권) 상태, 보험료 납입 여부, "
+                "보험금 청구 처리/지급 상태, 약관대출 여부, 만기환급 시점 등 "
+                "'내 블록체인 보험 어떻게 됐어?', '보험금 지급됐어?', '이번 달 보험료 냈나?', "
+                "'만기 언제야?' 같은 질문에 사용하세요. 일반 보험 상품 추천/비교에는 사용하지 마세요 "
+                "— 이 도구는 이미 블록체인으로 가입한 사용자의 실제 계약 데이터 조회 전용입니다."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "wallet_address": {
+                        "type": "string",
+                        "description": (
+                            "조회할 MetaMask 지갑 주소(0x로 시작하는 42자). "
+                            "사용자가 대화 중 알려줬다면 그 값을 사용하고, 모르면 비워두세요 "
+                            "(시스템에 등록된 주소가 있으면 자동으로 사용됩니다)."
+                        ),
+                    },
+                },
+                "required": [],
             },
         },
     },
@@ -875,7 +904,7 @@ def _extract_age_gender_params(text: str) -> dict:
 # 도구 실행기
 # ───────────────────────────────────────────
 
-def execute_tool(tool_name: str, tool_input: dict, client: openai.OpenAI) -> str:
+def execute_tool(tool_name: str, tool_input: dict, client: openai.OpenAI, wallet_address: str | None = None) -> str:
     if tool_name == "search_insurance_products":
         return search_products(**tool_input)
 
@@ -917,6 +946,11 @@ def execute_tool(tool_name: str, tool_input: dict, client: openai.OpenAI) -> str
 
     elif tool_name == "get_personalized_recommendation":
         return _run_recommendation_subagent(tool_input, client)
+
+    elif tool_name == "get_blockchain_dental_status":
+        return get_blockchain_dental_status(
+            wallet_address=tool_input.get("wallet_address") or wallet_address or ""
+        )
 
     else:
         return json.dumps({"error": f"알 수 없는 도구: {tool_name}"}, ensure_ascii=False)
@@ -1467,6 +1501,11 @@ SYSTEM_PROMPT = """당신은 친절하고 전문적인 보험 상담 AI 어시�
 - 종합 포트폴리오 → get_personalized_recommendation
 - 신용점수 조회 → get_credit_score (포트폴리오 추천 또는 "신용점수 반영" 요청 시)
 - 신용점수 조회 전 안내: "Chrome에서 나이스지키미(credit.co.kr) 또는 올크레딧(allcredit.co.kr)에 로그인해두세요"
+- 이미 가입한 블록체인 덴탈보험의 실시간 계약/납입/청구/대출/만기 조회 → get_blockchain_dental_status
+  - "내 블록체인 보험 상태 알려줘", "보험금 지급됐어?", "이번 달 보험료 냈나?", "만기 언제야?" 같은 질문에 사용
+  - wallet_address를 대화에서 모르면 빈 값으로 호출해보고, 도구가 지갑 주소가 없다는 오류를 반환하면
+    사용자에게 MetaMask 지갑 주소(0x로 시작)를 물어보거나 화면의 지갑 주소 등록창을 안내하세요
+  - 일반 상품 추천/비교에는 이 도구를 사용하지 마세요 (실제 가입한 계약 조회 전용)
 
 ### 최신 뉴스 안내
 뉴스 섹션은 시스템이 자동으로 추가합니다. 답변 본문에 뉴스를 직접 작성하지 마세요.
@@ -1494,6 +1533,7 @@ SYSTEM_PROMPT = """당신은 친절하고 전문적인 보험 상담 AI 어시�
 - `fetch_fss_realtime_products` → "금융감독원(FSS) 공시 API" ★★★★★
 - 웹 검색·도구 없이 GPT 지식만 사용한 경우 → "AI 학습 데이터 기반" ★★☆☆☆
 - `get_credit_score` → "NICE/KCB 신용점수 실시간 조회" ★★★★★
+- `get_blockchain_dental_status` → "블록체인 온체인 실시간 데이터" ★★★★★
 신뢰도: ★★★★★ 공식 공시 | ★★★★☆ 검증 DB | ★★★☆☆ 웹 검색 | ★★☆☆☆ AI 추론
 
 ## 의료·금융 전문 용어 한글 병기 규칙 (필수)
@@ -1568,6 +1608,9 @@ class InsuranceChatbot:
     def __init__(self):
         self.client = openai.OpenAI()
         self.conversation_history: list[dict] = []
+        # 블록체인 조회 도구(get_blockchain_dental_status)가 매번 물어보지 않고
+        # 쓸 수 있도록, 한 번 등록된 지갑 주소를 세션(=이 챗봇 인스턴스) 동안 기억한다.
+        self.wallet_address: str | None = None
 
     # ── 뉴스 섹션 (Python 레벨, 실제 URL 보장) ──────────────────
     @staticmethod
@@ -1794,7 +1837,7 @@ class InsuranceChatbot:
                 for tc in tool_calls:
                     print(f"  [tool] {tc.function.name}", flush=True)
                     tool_input = json.loads(tc.function.arguments)
-                    result = execute_tool(tc.function.name, tool_input, self.client)
+                    result = execute_tool(tc.function.name, tool_input, self.client, self.wallet_address)
                     self.conversation_history.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
@@ -1891,7 +1934,7 @@ class InsuranceChatbot:
                     yield {"type": "tool_start", "tool": tc["name"]}
                     try:
                         tool_input = json.loads(tc["arguments"])
-                        result = execute_tool(tc["name"], tool_input, self.client)
+                        result = execute_tool(tc["name"], tool_input, self.client, self.wallet_address)
                     except Exception as e:
                         result = json.dumps({"error": str(e)}, ensure_ascii=False)
                     yield {"type": "tool_done", "tool": tc["name"]}
