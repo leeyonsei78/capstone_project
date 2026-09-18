@@ -30,7 +30,9 @@ def _is_stack_running() -> bool:
 def get_blockchain_dental_status(wallet_address: str = "") -> str:
     """
     특정 지갑 주소의 블록체인 덴탈보험 실시간 현황(증권/보험료납입/보험금청구/
-    약관대출/만기환급, USDC+KRW 통합)을 조회합니다.
+    약관대출/만기환급)을 조회합니다. USDC 계약 기준입니다 — KRW는 별개의
+    독립된 계약이라(서로 동기화되지 않음) 혼란을 피하기 위해 조회 대상에서
+    제외합니다.
 
     Args:
         wallet_address: 조회할 MetaMask 지갑 주소(0x로 시작). 비어 있으면

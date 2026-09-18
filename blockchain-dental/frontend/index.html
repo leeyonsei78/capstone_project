@@ -1414,7 +1414,9 @@
 
     </div>
 
-    <!-- 통계 차트 (USDC+KRW 통합, 외부 라이브러리 없이 인라인 SVG/CSS로 렌더링) -->
+    <!-- 통계 차트 (chartCcySplit만 USDC·KRW 비교용으로 두 계약을 함께 조회하고,
+         나머지 3개는 다른 탭들과 동일하게 현재 화면 통화(currencyMode)만 집계함.
+         외부 라이브러리 없이 인라인 SVG/CSS로 렌더링) -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
       <div class="card">
         <div class="card-title">💱 통화별 보험료 수납 비중</div>
@@ -1423,17 +1425,17 @@
       </div>
       <div class="card">
         <div class="card-title">📝 청약 심사 현황</div>
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">USDC+KRW 전체 청약 건수</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">현재 화면 통화(<span id="chartAppStatusUnit">USDC</span>) 청약 건수</div>
         <div id="chartAppStatus"></div>
       </div>
       <div class="card">
         <div class="card-title">🦷 보험금 청구 상태별 건수</div>
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">USDC+KRW 전체 청구 건수</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">현재 화면 통화(<span id="chartClaimStatusUnit">USDC</span>) 청구 건수</div>
         <div id="chartClaimStatus"></div>
       </div>
       <div class="card">
         <div class="card-title">💰 자금 흐름 비교</div>
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">현재 화면 통화로 환산한 합산 금액</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">현재 화면 통화(<span id="chartFundsFlowUnit">USDC</span>) 금액</div>
         <div id="chartFundsFlow"></div>
       </div>
     </div>

@@ -2,8 +2,9 @@
 /**
  * query-policy.js
  * 챗봇(insurance_agent)이 subprocess로 호출해, 특정 지갑주소의 실시간
- * 블록체인 덴탈보험 현황(증권/청구/대출/만기, USDC+KRW 통합)을 JSON으로
- * 출력하는 읽기 전용 조회 스크립트.
+ * 블록체인 덴탈보험 현황(증권/청구/대출/만기)을 JSON으로 출력하는 읽기 전용
+ * 조회 스크립트. USDC 계약만 조회한다 — KRW는 별개 계약이라 챗봇 답변에
+ * 혼재시키지 않기로 함 (2026-09-18 사용자 결정, CLAUDE.md 참고).
  *
  * 사용법: node scripts/query-policy.js <지갑주소>
  *
@@ -32,9 +33,14 @@ function fmtAmount(raw, decimals) {
   const n = Number(ethers.formatUnits(raw, decimals));
   return decimals === 0 ? `₩${Math.round(n).toLocaleString("ko-KR")}` : `$${n.toFixed(2)}`;
 }
+// frontend(app.js)의 tsToDate()와 동일하게 한국 시간(KST)으로 포맷 — 예전엔
+// toISOString()(UTC, 타임존 표시 없음)을 그대로 썼다가, 프론트엔드 화면(KST)과
+// 챗봇 답변(암묵적 UTC)의 만기 시각이 서로 다르게 보이는 버그가 있었음
+// (2026-09-18 수정).
 function tsToDate(ts) {
   const n = Number(ts);
-  return n === 0 ? null : new Date(n * 1000).toISOString().replace("T", " ").slice(0, 19);
+  if (n === 0) return null;
+  return new Date(n * 1000).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) + " (KST)";
 }
 function output(obj) {
   console.log(JSON.stringify(obj));
@@ -64,9 +70,11 @@ async function main() {
   const block = await provider.getBlock("latest");
   const nowTs = Number(block.timestamp);
 
+  // USDC 계약만 조회한다. USDC·KRW는 서로 독립된 별개 계약이라(동기화 없음),
+  // 챗봇이 둘을 섞어 답하면 사용자가 "같은 증권인데 왜 다르게 나오냐"고
+  // 혼란스러워함 — 챗봇 답변은 USDC 계약 기준으로 통일 (2026-09-18 결정).
   const currencies = [
-    { ccy: "USDC", addr: config.contracts?.DentalInsurance,    decimals: 6 },
-    { ccy: "KRW",  addr: config.contracts?.DentalInsuranceKRW, decimals: 0 },
+    { ccy: "USDC", addr: config.contracts?.DentalInsurance, decimals: 6 },
   ];
 
   const policies = [];

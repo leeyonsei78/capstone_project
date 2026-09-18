@@ -1335,6 +1335,7 @@ async function refreshAll() {
       refreshApplications(),
       refreshLoanPolicies(),
       refreshPremiumHistory(),
+      refreshAutopaySchedule(),
       refreshClaimCoverageInfo(),
       refreshReserve()
     ]);
@@ -1928,13 +1929,13 @@ async function payPremium() {
   );
 }
 
-// ── 납입 이력 (수동 payPremium + 자동 collectPremium 전체, USDC+KRW 통합) ──
+// ── 납입 이력 (수동 payPremium + 자동 collectPremium, 현재 화면 통화(currencyMode)만) ──
 async function refreshPremiumHistory() {
   const tbody = el("premiumHistoryBody");
   if (!tbody) return;
   try {
     let rows = [];
-    for (const ccy of ['USDC', 'KRW']) {
+    for (const ccy of [currencyMode]) {
       const handle = getContractsForCcy(ccy);
       if (!handle?.ctx) continue;
       try {
@@ -2508,7 +2509,10 @@ function renderBarChart(containerId, bars) {
 async function refreshStatCharts() {
   if (!getContractsForCcy(currencyMode)?.ctx) return;
   const sym = stableName();
-  if (el("chartCcySplitUnit")) el("chartCcySplitUnit").textContent = sym;
+  if (el("chartCcySplitUnit"))    el("chartCcySplitUnit").textContent    = sym;
+  if (el("chartAppStatusUnit"))   el("chartAppStatusUnit").textContent   = sym;
+  if (el("chartClaimStatusUnit")) el("chartClaimStatusUnit").textContent = sym;
+  if (el("chartFundsFlowUnit"))   el("chartFundsFlowUnit").textContent   = sym;
 
   try {
     // ── 1) 통화별 보험료 수납 비중 ──────────────────────────
@@ -2529,8 +2533,8 @@ async function refreshStatCharts() {
       { label: "KRW 계약",  value: toHuman(krwPremiumRaw),  display: fmtByCcy(krwPremiumRaw, currencyMode),  color: "var(--accent-yellow)" },
     ]);
 
-    // ── 2) 청약 심사 현황 ────────────────────────────────────
-    const appRows = await fetchAllApplicationsBothCcy();
+    // ── 2) 청약 심사 현황 (현재 화면 통화만) ─────────────────
+    const appRows = (await fetchAllApplicationsBothCcy()).filter(({ ccy }) => ccy === currencyMode);
     const appCounts = [0, 0, 0];
     appRows.forEach(({ a }) => appCounts[Number(a.status)]++);
     renderBarChart("chartAppStatus", [
@@ -2539,8 +2543,8 @@ async function refreshStatCharts() {
       { label: "❌ 거절됨", value: appCounts[2], display: `${appCounts[2]}건`, color: "var(--accent-red)" },
     ]);
 
-    // ── 3) 청구 상태별 건수 ──────────────────────────────────
-    const claimRows = await fetchAllClaimsBothCcy();
+    // ── 3) 청구 상태별 건수 (현재 화면 통화만) ───────────────
+    const claimRows = (await fetchAllClaimsBothCcy()).filter(({ ccy }) => ccy === currencyMode);
     const claimCounts = [0, 0, 0, 0];
     claimRows.forEach(({ c }) => claimCounts[Number(c.status)]++);
     renderBarChart("chartClaimStatus", [
@@ -2550,34 +2554,33 @@ async function refreshStatCharts() {
       { label: "💰 지급완료", value: claimCounts[3], display: `${claimCounts[3]}건`, color: "var(--accent-green)" },
     ]);
 
-    // ── 4) 자금 흐름 비교 (현재 화면 통화로 환산) ────────────
+    // ── 4) 자금 흐름 (현재 화면 통화만) ───────────────────────
     let totalPremiumsRaw = 0n, totalClaimsRaw = 0n, totalReserveRaw = 0n;
-    for (const ccy of ['USDC', 'KRW']) {
-      const handle = getContractsForCcy(ccy);
+    {
+      const handle = getContractsForCcy(currencyMode);
       if (handle?.ctx) {
         try {
           const stats = await handle.ctx.getStats();
-          totalPremiumsRaw += convertRawAmount(stats.premiumsCollected, ccy, currencyMode);
-          totalClaimsRaw   += convertRawAmount(stats.claimsPaid, ccy, currencyMode);
-        } catch (e) { addLog("error", `[${ccy}] 차트용 통계 조회 실패`, e.message); }
+          totalPremiumsRaw = stats.premiumsCollected;
+          totalClaimsRaw   = stats.claimsPaid;
+        } catch (e) { addLog("error", `[${currencyMode}] 차트용 통계 조회 실패`, e.message); }
       }
-      const rHandle = getReserveForCcy(ccy);
+      const rHandle = getReserveForCcy(currencyMode);
       if (rHandle?.ctx) {
         try {
           const holders = await rHandle.ctx.getAllHolders();
           const previews = await Promise.all(holders.map(a => rHandle.ctx.previewBalance(a).catch(() => ({ projectedPrincipal: 0n }))));
-          const sum = previews.reduce((s, p) => s + p.projectedPrincipal, 0n);
-          totalReserveRaw += convertRawAmount(sum, ccy, currencyMode);
-        } catch (e) { addLog("error", `[${ccy}] 차트용 준비금 조회 실패`, e.message); }
+          totalReserveRaw = previews.reduce((s, p) => s + p.projectedPrincipal, 0n);
+        } catch (e) { addLog("error", `[${currencyMode}] 차트용 준비금 조회 실패`, e.message); }
       }
     }
-    // 약관대출 총액(활성 대출만) — 두 통화 증권을 순회하며 합산
-    const policyRows = await fetchAllPoliciesBothCcy();
+    // 약관대출 총액(활성 대출만, 현재 화면 통화의 증권만)
+    const policyRows = (await fetchAllPoliciesBothCcy()).filter(({ ccy }) => ccy === currencyMode);
     const loanAmounts = await Promise.all(policyRows.map(async ({ p, ccy }) => {
       const handle = getContractsForCcy(ccy);
       if (!handle?.ctx) return 0n;
       const loan = await handle.ctx.getPolicyLoan(p.id).catch(() => null);
-      return loan && loan.active ? convertRawAmount(loan.loanAmount, ccy, currencyMode) : 0n;
+      return loan && loan.active ? loan.loanAmount : 0n;
     }));
     const totalLoansRaw = loanAmounts.reduce((s, v) => s + v, 0n);
 
@@ -2599,9 +2602,10 @@ async function refreshBlockchainState() {
   if (!insCtx || !usdcCtx) return;
   try {
     addLog("call", "블록체인 상태 조회 중...");
-    // 블록/네트워크/컨트랙트 주소/내 지갑 잔액은 "지금 연결된(토글된) 컨트랙트" 고유
-    // 정보라 통화 통합 대상이 아님 — 반면 보험료수납/지급/증권수/청구수/손익은 다른
-    // 탭들과 마찬가지로 두 통화를 합쳐 현재 화면 통화로 환산해 보여줌.
+    // 다른 탭들과 동일하게 현재 화면 통화(currencyMode)의 계약만 집계한다 —
+    // 예전엔 보험료수납/지급/증권수/청구수/손익을 두 통화 합쳐 환산해 보여줬으나,
+    // 관리자 대시보드도 통화별로 분리해달라는 사용자 요청에 따라 다른 탭들과
+    // 통일함 (2026-09-18).
     const [block, ownerAddr, totalSupply, myBal, networkInfo] = await Promise.all([
       provider.getBlock("latest"),
       insCtx.owner(),
@@ -2611,21 +2615,20 @@ async function refreshBlockchainState() {
     ]);
 
     let totalContractBal = 0n, totalPremiums = 0n, totalPaid = 0n, totalPolicies = 0, totalClaims = 0;
-    for (const ccy of ['USDC', 'KRW']) {
+    for (const ccy of [currencyMode]) {
       const handle = getContractsForCcy(ccy);
       if (!handle?.ctx) continue;
       try {
         const stats = await handle.ctx.getStats();
-        totalContractBal += convertRawAmount(stats.contractBalance, ccy, currencyMode);
-        totalPremiums     += convertRawAmount(stats.premiumsCollected, ccy, currencyMode);
-        totalPaid          += convertRawAmount(stats.claimsPaid, ccy, currencyMode);
+        totalContractBal += stats.contractBalance;
+        totalPremiums     += stats.premiumsCollected;
+        totalPaid          += stats.claimsPaid;
         totalPolicies      += Number(stats.policiesCount);
         totalClaims         += Number(stats.claimsCount);
       } catch (e) {
         addLog("error", `[${ccy}] 통계 조회 실패`, e.message);
       }
     }
-    const convSuffix = ` (${currencyMode} 환산)`;
 
     el("stateBlockNum").textContent    = block.number.toLocaleString();
     el("stateNetwork").textContent     = networkInfo.name === "unknown" ? `Hardhat (${networkInfo.chainId})` : networkInfo.name;
@@ -2633,10 +2636,10 @@ async function refreshBlockchainState() {
     el("stateOwner").textContent       = shortAddr(ownerAddr);
     el("stateOwner").title             = ownerAddr;
     el("stateUsdcSupply").textContent  = `${parseFloat(fmt(totalSupply)).toLocaleString("ko-KR")} ${stableName()}`;
-    el("stateContractBal").textContent = fmtByCcy(totalContractBal, currencyMode) + convSuffix;
+    el("stateContractBal").textContent = fmtByCcy(totalContractBal, currencyMode);
     el("stateMyBal").textContent       = fmtUsdc(myBal);
-    el("statePremiums").textContent    = fmtByCcy(totalPremiums, currencyMode) + convSuffix;
-    el("statePaid").textContent        = fmtByCcy(totalPaid, currencyMode) + convSuffix;
+    el("statePremiums").textContent    = fmtByCcy(totalPremiums, currencyMode);
+    el("statePaid").textContent        = fmtByCcy(totalPaid, currencyMode);
     el("statePolicies2").textContent   = totalPolicies.toString();
     el("stateClaims2").textContent     = totalClaims.toString();
     el("stateInsAddr").textContent     = shortAddr(insAddr);
@@ -2644,11 +2647,11 @@ async function refreshBlockchainState() {
     el("stateTimestamp").textContent   = new Date(Number(block.timestamp) * 1000).toLocaleString("ko-KR");
 
     const profit = totalPremiums - totalPaid;
-    el("stateProfit").textContent = fmtByCcy(profit < 0n ? 0n : profit, currencyMode) + convSuffix;
+    el("stateProfit").textContent = fmtByCcy(profit < 0n ? 0n : profit, currencyMode);
     el("stateProfit").className   = `kv-value ${profit >= 0n ? "green" : "red"}`;
 
     addLog("call", "블록체인 상태 조회 완료",
-      `블록 #${block.number} | 보험사잔액(USDC+KRW 환산): ${fmtByCcy(totalContractBal, currencyMode)} | 내잔액: ${fmtUsdc(myBal)}`);
+      `블록 #${block.number} | 보험사잔액(${currencyMode}): ${fmtByCcy(totalContractBal, currencyMode)} | 내잔액: ${fmtUsdc(myBal)}`);
 
     refreshStatCharts();
   } catch (err) {
@@ -2664,6 +2667,9 @@ async function refreshMaturity() {
     let rows = await fetchAllPoliciesBothCcy();
     const tbody = el("maturityTableBody");
     if (!tbody) return;
+    // 다른 4개 탭(청구/납입/자동납부/약관대출)의 목록과 동일하게 현재 화면 통화(currencyMode)의
+    // 증권만 보여준다 — 다른 통화 증권과 섞이지 않도록
+    rows = rows.filter(({ ccy }) => ccy === currencyMode);
     if (!isOwner) {
       rows = rows.filter(({ p }) => p.patient.toLowerCase() === userAddr?.toLowerCase());
     }
@@ -2718,7 +2724,7 @@ async function refreshMaturity() {
         </tr>`;
     }).join("");
 
-    // 만기 카운트 업데이트 (두 통화 합산)
+    // 만기 카운트 업데이트 (현재 화면 통화 기준)
     const maturedCount = rows.filter(({ p }) => blockTs >= Number(p.maturityDate) && p.active && !p.maturityPaid).length;
     const paidCount    = rows.filter(({ p }) => p.maturityPaid).length;
     const el2 = el("maturityAlertBadge");
@@ -2889,7 +2895,8 @@ async function refreshAutopaySchedule() {
     let rows = "";
     let any = false;
 
-    for (const ccy of ['USDC', 'KRW']) {
+    // 다른 4개 탭과 동일하게 현재 화면 통화(currencyMode)의 증권만 보여준다
+    for (const ccy of [currencyMode]) {
       const handle = getContractsForCcy(ccy);
       const token  = getTokenForCcy(ccy);
       if (!handle?.ctx) continue;
@@ -3386,11 +3393,13 @@ function exportAppTableCsv() {
 }
 
 async function refreshApplications() {
-  addLog("call", "getAllApplicationIds() 조회 (USDC+KRW 통합)");
+  addLog("call", `getAllApplicationIds() 조회 (${currencyMode})`);
   try {
     let rows = await fetchAllApplicationsBothCcy();
     if (!el("appTableBody")) return;
 
+    // 다른 탭들과 동일하게 현재 화면 통화(currencyMode)의 청약만 보여준다
+    rows = rows.filter(({ ccy }) => ccy === currencyMode);
     if (!isOwner) {
       rows = rows.filter(({ a }) => a.applicant.toLowerCase() === userAddr?.toLowerCase());
     }
@@ -3623,7 +3632,8 @@ async function refreshLoanPolicies() {
   if (!tbody) return;
   try {
     let rows = [];
-    for (const ccy of ['USDC', 'KRW']) {
+    // 다른 4개 탭과 동일하게 현재 화면 통화(currencyMode)의 증권만 보여준다
+    for (const ccy of [currencyMode]) {
       const handle = getContractsForCcy(ccy);
       if (!handle?.ctx) continue;
       try {
@@ -3802,10 +3812,10 @@ async function refreshReserve() {
       }
     }
 
-    // ── 전체 고객 현황 (관리자) — USDC+KRW 통합 ────────────────
+    // ── 전체 고객 현황 (관리자) — 다른 탭들과 동일하게 현재 화면 통화만 ──
     if (isOwner) {
       let rows = [];
-      for (const ccy of ['USDC', 'KRW']) {
+      for (const ccy of [currencyMode]) {
         const handle = getReserveForCcy(ccy);
         if (!handle?.ctx) continue;
         try {
@@ -3825,12 +3835,11 @@ async function refreshReserve() {
 
       _reserveAdminRowsCache = rows;
 
-      // 합계는 현재 화면 통화로 환산해 하나의 숫자로 보여줌
-      const totalProjected = rows.reduce((s, r) => s + convertRawAmount(r.preview.projectedPrincipal, r.ccy, currencyMode), 0n);
-      const totalInterest  = rows.reduce((s, r) => s + convertRawAmount(r.acc.totalInterestEarned + r.preview.pendingInterest, r.ccy, currencyMode), 0n);
+      const totalProjected = rows.reduce((s, r) => s + r.preview.projectedPrincipal, 0n);
+      const totalInterest  = rows.reduce((s, r) => s + r.acc.totalInterestEarned + r.preview.pendingInterest, 0n);
       el("reserveAdminHolderCount").textContent   = rows.length.toString();
-      el("reserveAdminTotal").textContent         = `${fmtByCcy(totalProjected, currencyMode)} (환산)`;
-      el("reserveAdminTotalInterest").textContent = `${fmtByCcy(totalInterest, currencyMode)} (환산)`;
+      el("reserveAdminTotal").textContent         = fmtByCcy(totalProjected, currencyMode);
+      el("reserveAdminTotalInterest").textContent = fmtByCcy(totalInterest, currencyMode);
 
       const tbody = el("reserveAdminTable");
       if (tbody) {
@@ -3851,11 +3860,11 @@ async function refreshReserve() {
       }
     }
 
-    // ── 송금/인출 내역 (USDC+KRW 통합) ──────────────────────────
+    // ── 송금/인출 내역 (다른 탭들과 동일하게 현재 화면 통화만) ──────
     const historyBody = el("reserveHistoryBody");
     if (historyBody) {
       let hrows = [];
-      for (const ccy of ['USDC', 'KRW']) {
+      for (const ccy of [currencyMode]) {
         const handle = getReserveForCcy(ccy);
         if (!handle?.ctx) continue;
         try {
