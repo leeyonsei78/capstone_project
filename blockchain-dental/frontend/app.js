@@ -301,13 +301,16 @@ function parseUsdc(val) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  통화 교차 조회/표시 (보험증권 관리 · 보험금 청구 — USDC/KRW 통합 뷰)
+//  통화 교차 조회/표시
 //
-//  이 두 탭은 현재 토글된 통화(currencyMode)와 무관하게 USDC/KRW 양쪽
-//  계약을 함께 보여준다. 실제 온체인 결제 통화는 계약이 어느 컨트랙트에
-//  있는지로 고정되므로(계약 자체를 다른 통화로 바꿀 수는 없음), 화면
-//  표시/입력만 현재 보고 있는 통화로 변환해서 보여주고, 실제 트랜잭션은
-//  항상 그 계약이 속한 원래 컨트랙트로 보낸다.
+//  보험증권 목록/보험금 청구 "목록 테이블"은 현재 토글된 통화(currencyMode)의
+//  계약만 보여준다(다른 통화 계약과 한 화면에 섞이지 않음, refreshPolicies/
+//  refreshClaims 참고) — 반면 보험료납입/자동납부/약관대출/만기환급 등
+//  "액션 대상 선택" 드롭다운(updateActivePolicySelects)은 여전히 두 통화
+//  계약을 모두 선택할 수 있다. 실제 온체인 결제 통화는 계약이 어느 컨트랙트에
+//  있는지로 고정되므로(계약 자체를 다른 통화로 바꿀 수는 없음), 다른 통화
+//  계약을 선택해 입력한 금액은 화면 표시만 현재 통화로 변환해서 보여주고,
+//  실제 트랜잭션은 항상 그 계약이 속한 원래 컨트랙트로 보낸다.
 // ═══════════════════════════════════════════════════════════════
 function decimalsForCcy(ccy) { return ccy === 'KRW' ? 0 : 6; }
 
@@ -1344,12 +1347,13 @@ async function refreshAll() {
 }
 
 async function refreshStats() {
-  if (!getContractsForCcy(currencyMode)?.ctx) return;
+  const handle = getContractsForCcy(currencyMode);
+  if (!handle?.ctx) return;
   try {
-    // 두 통화 모두에서 수집 (기존 헬퍼 재사용) — 관리자: 전체 계정 합산 / 일반: 본인 데이터만
-    let policyRows = await fetchAllPoliciesBothCcy();   // [{p, ccy, decimals}]
-    let claimRows  = await fetchAllClaimsBothCcy();     // [{c, ov, ccy}]
-    let appRows    = await fetchAllApplicationsBothCcy(); // [{a, ccy}]
+    // 현재 화면 통화(currencyMode)의 계약만 집계 — 관리자: 전체 계정 합산 / 일반: 본인 데이터만
+    let policyRows = (await fetchAllPoliciesBothCcy()).filter(r => r.ccy === currencyMode);   // [{p, ccy, decimals}]
+    let claimRows  = (await fetchAllClaimsBothCcy()).filter(r => r.ccy === currencyMode);     // [{c, ov, ccy}]
+    let appRows    = (await fetchAllApplicationsBothCcy()).filter(r => r.ccy === currencyMode); // [{a, ccy}]
     if (!isOwner) {
       policyRows = policyRows.filter(({ p }) => p.patient.toLowerCase() === userAddr?.toLowerCase());
       claimRows  = claimRows.filter(({ c }) => c.patient.toLowerCase() === userAddr?.toLowerCase());
@@ -1362,101 +1366,81 @@ async function refreshStats() {
     const labelClaimsEl = el("labelStatClaims");
     if (labelClaimsEl) labelClaimsEl.textContent = isOwner ? "💰 총 보험금 지급" : "💰 지급받은 보험금 합계";
 
-    // 두 통화가 섞여 있을 때만 "(환산)" 표기 — 한쪽 통화만 배포된 데모에선 굳이 안 붙임
-    const hasMixedCcy = policyRows.some(r => r.ccy !== currencyMode) || claimRows.some(r => r.ccy !== currencyMode);
-    const convSuffix  = hasMixedCcy ? " (환산)" : "";
-
-    // ── 보험료 수납 / 보험금 지급 (두 통화 getStats() 합산 후 현재 화면 통화로 환산) ──
+    // ── 보험료 수납 / 보험금 지급 ────────────────────────────
     if (isOwner) {
       let totalPremiums = 0n, totalClaimsPaid = 0n, totalClaimsCount = 0;
-      for (const ccy of ['USDC', 'KRW']) {
-        const handle = getContractsForCcy(ccy);
-        if (!handle?.ctx) continue;
-        try {
-          const stats = await handle.ctx.getStats();
-          totalPremiums    += convertRawAmount(stats.premiumsCollected, ccy, currencyMode);
-          totalClaimsPaid  += convertRawAmount(stats.claimsPaid, ccy, currencyMode);
-          totalClaimsCount += Number(stats.claimsCount);
-        } catch (e) {
-          addLog("error", `[${ccy}] 통계 조회 실패`, e.message);
-        }
+      try {
+        const stats = await handle.ctx.getStats();
+        totalPremiums    = stats.premiumsCollected;
+        totalClaimsPaid  = stats.claimsPaid;
+        totalClaimsCount = Number(stats.claimsCount);
+      } catch (e) {
+        addLog("error", `[${currencyMode}] 통계 조회 실패`, e.message);
       }
-      el("statPremiums").textContent  = fmtByCcy(totalPremiums, currencyMode) + convSuffix;
-      el("statClaims").textContent    = fmtByCcy(totalClaimsPaid, currencyMode) + convSuffix;
+      el("statPremiums").textContent  = fmtByCcy(totalPremiums, currencyMode);
+      el("statClaims").textContent    = fmtByCcy(totalClaimsPaid, currencyMode);
       el("statClaimsNum").textContent = totalClaimsCount.toString();
     } else {
-      const totalPremiums = policyRows.reduce((sum, { p, ccy }) => sum + convertRawAmount(BigInt(p.totalPaid), ccy, currencyMode), 0n);
-      el("statPremiums").textContent = fmtByCcy(totalPremiums, currencyMode) + convSuffix;
+      const totalPremiums = policyRows.reduce((sum, { p }) => sum + BigInt(p.totalPaid), 0n);
+      el("statPremiums").textContent = fmtByCcy(totalPremiums, currencyMode);
     }
 
-    // ── 보험사(컨트랙트) 잔액 — 두 통화 합산 후 환산 ──────────
-    let totalBalance = 0n;
-    for (const ccy of ['USDC', 'KRW']) {
-      const handle = getContractsForCcy(ccy);
-      if (!handle?.ctx) continue;
-      try { totalBalance += convertRawAmount(await handle.ctx.getContractBalance(), ccy, currencyMode); }
-      catch (e) { addLog("error", `[${ccy}] 컨트랙트 잔액 조회 실패`, e.message); }
+    // ── 보험사(컨트랙트) 잔액 ──────────────────────────────────
+    try {
+      const balance = await handle.ctx.getContractBalance();
+      el("statBalance").textContent = fmtByCcy(balance, currencyMode);
+    } catch (e) {
+      addLog("error", `[${currencyMode}] 컨트랙트 잔액 조회 실패`, e.message);
     }
-    el("statBalance").textContent = fmtByCcy(totalBalance, currencyMode) + convSuffix;
 
     // ── 준비금 잔액: 일반 계정은 본인 것만("내 준비금 잔액"), 관리자는 전체 합계("보험사 준비금 잔액") ───
     if (el("statReserveBalance")) {
-      el("statReserveBalance").textContent = fmtByCcy(await getViewerReserveBalanceBothCcy(), currencyMode) + convSuffix;
+      el("statReserveBalance").textContent = fmtByCcy(await getViewerReserveBalance(), currencyMode);
     }
 
-    // ── 보험증권: 전체 vs 활성 (두 통화 합산) ──────────────────
+    // ── 보험증권: 전체 vs 활성 ──────────────────────────────────
     const activeCount = policyRows.filter(({ p }) => p.active).length;
     el("statPolicies").textContent      = activeCount.toString();
     el("statPoliciesTotal").textContent = isOwner ? `전체 ${policyRows.length}건` : `내 증권 ${policyRows.length}건`;
 
-    // ── 청구 (두 통화 합산) ────────────────────────────────────
+    // ── 청구 ────────────────────────────────────────────────────
     const pendingClaims = claimRows.filter(({ c }) => Number(c.status) === 0).length;
     el("statClaimsPending").textContent = `대기 ${pendingClaims}건`;
     if (!isOwner) {
       el("statClaimsNum").textContent = claimRows.length.toString();
-      const myClaimsPaid = claimRows.reduce((sum, { c, ccy }) =>
-        Number(c.status) === 3 ? sum + convertRawAmount(BigInt(c.amount), ccy, currencyMode) : sum, 0n);
-      el("statClaims").textContent = fmtByCcy(myClaimsPaid, currencyMode) + convSuffix;
+      const myClaimsPaid = claimRows.reduce((sum, { c }) =>
+        Number(c.status) === 3 ? sum + BigInt(c.amount) : sum, 0n);
+      el("statClaims").textContent = fmtByCcy(myClaimsPaid, currencyMode);
     }
 
-    // ── 청약 심사 현황 (두 통화 합산) ───────────────────────────
+    // ── 청약 심사 현황 ────────────────────────────────────────
     el("statAppPending").textContent  = appRows.filter(({ a }) => Number(a.status) === 0).length.toString();
     el("statAppApproved").textContent = appRows.filter(({ a }) => Number(a.status) === 1).length.toString();
     el("statAppRejected").textContent = appRows.filter(({ a }) => Number(a.status) === 2).length.toString();
 
-    // ── 약관대출 현황 (본인/전체 증권 기준, 두 통화 합산) ───────
-    const loanEntries = await Promise.all(policyRows.map(async ({ p, ccy }) => {
-      const handle = getContractsForCcy(ccy);
-      if (!handle?.ctx) return null;
-      const loan = await handle.ctx.getPolicyLoan(p.id).catch(() => null);
-      return loan ? { loan, ccy } : null;
-    }));
-    const activeLoans  = loanEntries.filter(e => e && e.loan.active);
-    const totalLoanAmt = activeLoans.reduce((sum, { loan, ccy }) => sum + convertRawAmount(BigInt(loan.loanAmount), ccy, currencyMode), 0n);
+    // ── 약관대출 현황 (본인/전체 증권 기준) ─────────────────────
+    const loanEntries = await Promise.all(policyRows.map(({ p }) => handle.ctx.getPolicyLoan(p.id).catch(() => null)));
+    const activeLoans  = loanEntries.filter(loan => loan && loan.active);
+    const totalLoanAmt = activeLoans.reduce((sum, loan) => sum + BigInt(loan.loanAmount), 0n);
     el("statLoanCount").textContent  = activeLoans.length.toString();
     el("statLoanAmount").textContent = activeLoans.length > 0
-      ? `총 ${fmtByCcy(totalLoanAmt, currencyMode)}${convSuffix}` : "없음";
+      ? `총 ${fmtByCcy(totalLoanAmt, currencyMode)}` : "없음";
 
     // ── 만기환급 현황 (실제 지급액은 MaturityRefundPaid 이벤트에서 합산 —
     //    약관대출이 있었던 건은 원리금 차감 후 순액이 지급되고 현재 상태로는
-    //    복원 불가하므로, totalPaid×refundRate% gross 재계산 대신 이벤트 로그 사용,
-    //    두 통화 이벤트를 각각 조회해 현재 화면 통화로 환산 합산) ─
+    //    복원 불가하므로, totalPaid×refundRate% gross 재계산 대신 이벤트 로그 사용) ─
     const matured = policyRows.filter(({ p }) => p.maturityPaid);
     let totalMatAmt = 0n;
-    for (const ccy of ['USDC', 'KRW']) {
-      const handle = getContractsForCcy(ccy);
-      if (!handle?.ctx) continue;
-      try {
-        let events = await handle.ctx.queryFilter(handle.ctx.filters.MaturityRefundPaid()).catch(() => []);
-        if (!isOwner) events = events.filter(ev => ev.args.patient.toLowerCase() === userAddr?.toLowerCase());
-        totalMatAmt += events.reduce((sum, ev) => sum + convertRawAmount(BigInt(ev.args.refundAmount), ccy, currencyMode), 0n);
-      } catch (e) {
-        addLog("error", `[${ccy}] 만기환급 이벤트 조회 실패`, e.message);
-      }
+    try {
+      let events = await handle.ctx.queryFilter(handle.ctx.filters.MaturityRefundPaid()).catch(() => []);
+      if (!isOwner) events = events.filter(ev => ev.args.patient.toLowerCase() === userAddr?.toLowerCase());
+      totalMatAmt = events.reduce((sum, ev) => sum + BigInt(ev.args.refundAmount), 0n);
+    } catch (e) {
+      addLog("error", `[${currencyMode}] 만기환급 이벤트 조회 실패`, e.message);
     }
     el("statMaturityCount").textContent  = matured.length.toString();
     el("statMaturityAmount").textContent = matured.length > 0
-      ? `총 ${fmtByCcy(totalMatAmt, currencyMode)}${convSuffix}` : "없음";
+      ? `총 ${fmtByCcy(totalMatAmt, currencyMode)}` : "없음";
 
   } catch (err) {
     addLog("error", "통계 조회 실패", parseError(err));
@@ -1477,25 +1461,22 @@ async function getViewerReserveBalance() {
 }
 
 // refreshStats() 전용 — 두 통화 준비금계좌를 합쳐 현재 화면 통화로 환산한 합계를 반환
-async function getViewerReserveBalanceBothCcy() {
-  let total = 0n;
-  for (const ccy of ['USDC', 'KRW']) {
-    const handle = getReserveForCcy(ccy);
-    if (!handle?.ctx) continue;
-    try {
-      if (isOwner) {
-        const holders  = await handle.ctx.getAllHolders().catch(() => []);
-        const previews = await Promise.all(holders.map(a => handle.ctx.previewBalance(a).catch(() => ({ projectedPrincipal: 0n }))));
-        total += convertRawAmount(previews.reduce((s, p) => s + p.projectedPrincipal, 0n), ccy, currencyMode);
-      } else if (userAddr) {
-        const preview = await handle.ctx.previewBalance(userAddr).catch(() => ({ projectedPrincipal: 0n }));
-        total += convertRawAmount(preview.projectedPrincipal, ccy, currencyMode);
-      }
-    } catch (e) {
-      addLog("error", `[${ccy}] 준비금 잔액 조회 실패`, e.message);
+async function getViewerReserveBalance() {
+  const handle = getReserveForCcy(currencyMode);
+  if (!handle?.ctx) return 0n;
+  try {
+    if (isOwner) {
+      const holders  = await handle.ctx.getAllHolders().catch(() => []);
+      const previews = await Promise.all(holders.map(a => handle.ctx.previewBalance(a).catch(() => ({ projectedPrincipal: 0n }))));
+      return previews.reduce((s, p) => s + p.projectedPrincipal, 0n);
+    } else if (userAddr) {
+      const preview = await handle.ctx.previewBalance(userAddr).catch(() => ({ projectedPrincipal: 0n }));
+      return preview.projectedPrincipal;
     }
+  } catch (e) {
+    addLog("error", `[${currencyMode}] 준비금 잔액 조회 실패`, e.message);
   }
-  return total;
+  return 0n;
 }
 
 async function refreshMyBalance() {
@@ -1764,15 +1745,16 @@ async function refreshPolicies() {
   if (!insCtx) return;
   try {
     let rows = await fetchAllPoliciesBothCcy();
-    addLog("call", `보험증권 목록 조회 (USDC+KRW 통합): ${rows.length}건`);
     if (!el("policyTableBody")) return;
     if (!isOwner) {
       rows = rows.filter(({ p }) => p.patient.toLowerCase() === userAddr?.toLowerCase());
     }
-    _policyRowsCache = rows;
-    filterPolicyTable();
-    // 보험금청구/보험료납입/자동납부/약관대출/만기환급 5개 탭 모두 두 통화를 합쳐서 선택 가능하게 함
+    // 보험금청구/보험료납입/자동납부/약관대출/만기환급 5개 탭은 여전히 두 통화를 합쳐서 선택 가능하게 함
     updateActivePolicySelects(rows);
+    // 목록 테이블은 현재 화면 통화(currencyMode)의 계약만 보여준다 — 다른 통화 계약과 섞이지 않도록
+    _policyRowsCache = rows.filter(({ ccy }) => ccy === currencyMode);
+    addLog("call", `보험증권 목록 조회 (${currencyMode}): ${_policyRowsCache.length}건`);
+    filterPolicyTable();
   } catch (err) {
     addLog("error", "보험증권 목록 조회 실패", parseError(err));
   }
@@ -2175,12 +2157,13 @@ async function refreshClaims() {
   if (!insCtx) return;
   try {
     let rows = await fetchAllClaimsBothCcy();
-    addLog("call", `청구 목록 조회 (USDC+KRW 통합): ${rows.length}건`);
     if (!el("claimTableBody")) return;
     if (!isOwner) {
       rows = rows.filter(({ c }) => c.patient.toLowerCase() === userAddr?.toLowerCase());
     }
-    _claimRowsCache = rows;
+    // 목록 테이블은 현재 화면 통화(currencyMode)의 청구만 보여준다 — 다른 통화 청구와 섞이지 않도록
+    _claimRowsCache = rows.filter(({ ccy }) => ccy === currencyMode);
+    addLog("call", `청구 목록 조회 (${currencyMode}): ${_claimRowsCache.length}건`);
     filterClaimTable();
   } catch (err) {
     addLog("error", "청구 목록 조회 실패", parseError(err));

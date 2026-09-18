@@ -68,7 +68,8 @@ def get_blockchain_dental_status(wallet_address: str = "") -> str:
             ["node", QUERY_SCRIPT, wallet_address],
             cwd=blockchain_bridge.BLOCKCHAIN_DIR,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=20,
         )
     except Exception as e:
