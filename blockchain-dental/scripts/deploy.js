@@ -17,12 +17,16 @@ async function main() {
 
   const accounts = await ethers.getSigners();
 
+  // USDC↔KRW 환산에 쓰는 고정 환율 (KRW 샘플 데이터를 USDC 금액에서 환산할 때도,
+  // config.json에 저장할 때도 이 값 하나만 사용해 두 곳이 어긋나지 않게 함).
+  const KRW_PER_USD = 1400;
+
   // ─────────────────────────────────────────────────────────────
   // ── USDC 시스템 ─────────────────────────────────────────────
   // ─────────────────────────────────────────────────────────────
 
   // 1. MockUSDC 배포
-  console.log("\n[1/8] MockUSDC 배포 중...");
+  console.log("\n[1/10] MockUSDC 배포 중...");
   const MockUSDC = await ethers.getContractFactory("MockUSDC");
   const usdc = await MockUSDC.deploy();
   await usdc.waitForDeployment();
@@ -30,7 +34,7 @@ async function main() {
   console.log(`  ✅ MockUSDC 배포 완료: ${usdcAddress}`);
 
   // 2. DentalInsurance(USDC) 배포
-  console.log("\n[2/8] DentalInsurance(USDC) 배포 중...");
+  console.log("\n[2/10] DentalInsurance(USDC) 배포 중...");
   const DentalInsurance = await ethers.getContractFactory("DentalInsurance");
   const insurance = await DentalInsurance.deploy(usdcAddress);
   await insurance.waitForDeployment();
@@ -38,7 +42,7 @@ async function main() {
   console.log(`  ✅ DentalInsurance(USDC) 배포 완료: ${insuranceAddress}`);
 
   // 3. USDC 준비금 입금 (50,000 USDC) + 관리자 시작 잔액(1,000 USDC — 다른 계정과 동일)
-  console.log("\n[3/8] USDC 준비금 입금 중... (50,000 USDC)");
+  console.log("\n[3/10] USDC 준비금 입금 중... (50,000 USDC)");
   const usdcReserve = ethers.parseUnits("50000", 6);
   const adminStartBalance = ethers.parseUnits("1000", 6);
   let tx = await usdc.mint(deployer.address, usdcReserve + adminStartBalance);
@@ -50,7 +54,7 @@ async function main() {
   console.log(`  ✅ USDC 준비금 입금 완료: 50,000 USDC (관리자 잔액 1,000 USDC로 시작)`);
 
   // 4. USDC 샘플 보험증권
-  console.log("\n[4/8] USDC 샘플 보험증권 생성 중...");
+  console.log("\n[4/10] USDC 샘플 보험증권 생성 중...");
   const latestBlock = await ethers.provider.getBlock("latest");
   const now = Number(latestBlock.timestamp);
   const maturityIn30Min = now + 30 * 60;
@@ -86,7 +90,7 @@ async function main() {
   // ─────────────────────────────────────────────────────────────
 
   // 5. MockKRW 배포
-  console.log("\n[5/8] MockKRW 배포 중...");
+  console.log("\n[5/10] MockKRW 배포 중...");
   const MockKRW = await ethers.getContractFactory("MockKRW");
   const krw = await MockKRW.deploy();
   await krw.waitForDeployment();
@@ -94,7 +98,7 @@ async function main() {
   console.log(`  ✅ MockKRW 배포 완료: ${krwAddress}`);
 
   // 6. DentalInsurance(KRW) 배포
-  console.log("\n[6/8] DentalInsurance(KRW) 배포 중...");
+  console.log("\n[6/10] DentalInsurance(KRW) 배포 중...");
   const insuranceKrw = await DentalInsurance.deploy(krwAddress);
   await insuranceKrw.waitForDeployment();
   const insuranceKrwAddress = await insuranceKrw.getAddress();
@@ -149,7 +153,7 @@ async function main() {
   }
 
   // ── 샘플 청약 신청 (USDC 계약 기준) ─────────────────────────
-  console.log("\n[7/8] 샘플 청약 신청 중... (자동심사 테스트용)");
+  console.log("\n[7/10] 샘플 청약 신청 중... (자동심사 테스트용)");
 
   if (accounts.length > 4) {
     await usdc.connect(accounts[4]).faucet(ethers.parseUnits("1000", 6));
@@ -189,8 +193,48 @@ async function main() {
     console.log(`  ✅ 청약 #4: 전체담보 (30세) — 담보 7개(전체) 선택, 즉시 자동거절 | ${accounts[7].address}`);
   }
 
+  // ── 동일한 샘플 청약을 KRW 계약에도 동일하게 신청 (금액만 환산) ─────
+  // USDC 쪽 4건(자동승인 1 / 관리자심사대기 1 / 자동거절 2)과 나이·담보개수가
+  // 같으므로, KRW 심사 룰(위에서 setUnderwritingRules로 맞춰둔 최소보험료 10,000원
+  // 등)도 동일하게 통과해 USDC와 완전히 같은 결과(승인/대기/거절)로 자동 심사된다.
+  console.log("\n[8/10] 동일한 샘플 청약을 KRW 계약에도 신청 중... (USDC 금액 환산)");
+
+  if (accounts.length > 4) {
+    await krw.connect(accounts[4]).faucet(BigInt(1000000));
+    tx = await insuranceKrw.connect(accounts[4]).submitApplication(
+      "박청약", 35, BigInt(60 * KRW_PER_USD), BigInt(500 * KRW_PER_USD), 365, 70, 2
+    );
+    await tx.wait();
+    console.log(`  ✅ [KRW] 청약 #1: 박청약 (35세) — 담보 2개 선택, 즉시 자동승인 및 증권 생성 | ${accounts[4].address}`);
+  }
+
+  if (accounts.length > 5) {
+    await krw.connect(accounts[5]).faucet(BigInt(1000000));
+    tx = await insuranceKrw.connect(accounts[5]).submitApplication(
+      "최이십", 20, BigInt(40 * KRW_PER_USD), BigInt(2000 * KRW_PER_USD), 180, 60, 4
+    );
+    await tx.wait();
+    console.log(`  ✅ [KRW] 청약 #2: 최이십 (20세) — 담보 4개 선택, 관리자 심사 대기중 | ${accounts[5].address}`);
+  }
+
+  if (accounts.length > 6) {
+    tx = await insuranceKrw.connect(accounts[6]).submitApplication(
+      "노거절", 80, BigInt(50 * KRW_PER_USD), BigInt(1000 * KRW_PER_USD), 365, 70, 3
+    );
+    await tx.wait();
+    console.log(`  ✅ [KRW] 청약 #3: 노거절 (80세) — 자동 심사 거절 (연령 초과)`);
+  }
+
+  if (accounts.length > 7) {
+    tx = await insuranceKrw.connect(accounts[7]).submitApplication(
+      "전체담보", 30, BigInt(80 * KRW_PER_USD), BigInt(2500 * KRW_PER_USD), 365, 70, 7
+    );
+    await tx.wait();
+    console.log(`  ✅ [KRW] 청약 #4: 전체담보 (30세) — 담보 7개(전체) 선택, 즉시 자동거절 | ${accounts[7].address}`);
+  }
+
   // ── Oracle 설정 (USDC + KRW 양쪽) ───────────────────────────
-  console.log("\n[8/8] Oracle 설정 중...");
+  console.log("\n[9/10] Oracle 설정 중...");
   const ORACLE_ADDRESS = accounts.length > 3
     ? accounts[3].address
     : "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65";
@@ -209,7 +253,7 @@ async function main() {
   console.log(`  ✅ Oracle 모드       : USDC + KRW 양쪽 비활성화 (기본값 — 20% 초과 청구는 관리자 수동 심사)`);
 
   // ── 준비금 계좌(ReserveFund) 시스템 배포 (USDC + KRW) ────────
-  console.log("\n[9/9] ReserveFund(준비금 계좌) 배포 중...");
+  console.log("\n[10/10] ReserveFund(준비금 계좌) 배포 중...");
   const ReserveFund = await ethers.getContractFactory("ReserveFund");
   const reserveFund = await ReserveFund.deploy(usdcAddress);
   await reserveFund.waitForDeployment();
@@ -253,7 +297,7 @@ async function main() {
     // USDC↔KRW 환산에 쓰는 고정 환율. frontend/app.js와 scripts/hospital-provider/
     // mock-provider.js가 각자 하드코딩하던 걸 여기 하나로 모아, 두 곳이 따로 값을
     // 바꿔서 어긋나는 일이 없도록 함 (두 곳 다 이 값이 없으면 1400으로 폴백).
-    krwPerUsd:       1400,
+    krwPerUsd:       KRW_PER_USD,
     contracts: {
       MockUSDC:              usdcAddress,
       DentalInsurance:       insuranceAddress,

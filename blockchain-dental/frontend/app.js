@@ -303,14 +303,11 @@ function parseUsdc(val) {
 // ═══════════════════════════════════════════════════════════════
 //  통화 교차 조회/표시
 //
-//  보험증권 목록/보험금 청구 "목록 테이블"은 현재 토글된 통화(currencyMode)의
-//  계약만 보여준다(다른 통화 계약과 한 화면에 섞이지 않음, refreshPolicies/
-//  refreshClaims 참고) — 반면 보험료납입/자동납부/약관대출/만기환급 등
-//  "액션 대상 선택" 드롭다운(updateActivePolicySelects)은 여전히 두 통화
-//  계약을 모두 선택할 수 있다. 실제 온체인 결제 통화는 계약이 어느 컨트랙트에
-//  있는지로 고정되므로(계약 자체를 다른 통화로 바꿀 수는 없음), 다른 통화
-//  계약을 선택해 입력한 금액은 화면 표시만 현재 통화로 변환해서 보여주고,
-//  실제 트랜잭션은 항상 그 계약이 속한 원래 컨트랙트로 보낸다.
+//  보험증권 목록/보험금 청구 "목록 테이블"과 보험료납입/자동납부/약관대출/
+//  만기환급 등 "액션 대상 선택" 드롭다운(updateActivePolicySelects) 모두
+//  현재 토글된 통화(currencyMode)의 계약만 보여준다(다른 통화 계약과 한
+//  화면에 섞이지 않음 — refreshPolicies/refreshClaims/populateCompositeSelect
+//  참고). 다른 통화 계약을 다루려면 상단에서 통화를 전환해야 한다.
 // ═══════════════════════════════════════════════════════════════
 function decimalsForCcy(ccy) { return ccy === 'KRW' ? 0 : 6; }
 
@@ -1749,7 +1746,7 @@ async function refreshPolicies() {
     if (!isOwner) {
       rows = rows.filter(({ p }) => p.patient.toLowerCase() === userAddr?.toLowerCase());
     }
-    // 보험금청구/보험료납입/자동납부/약관대출/만기환급 5개 탭은 여전히 두 통화를 합쳐서 선택 가능하게 함
+    // 보험금청구/보험료납입/자동납부/약관대출/만기환급 5개 탭의 드롭다운도 currencyMode로 필터링됨
     updateActivePolicySelects(rows);
     // 목록 테이블은 현재 화면 통화(currencyMode)의 계약만 보여준다 — 다른 통화 계약과 섞이지 않도록
     _policyRowsCache = rows.filter(({ ccy }) => ccy === currencyMode);
@@ -1784,18 +1781,24 @@ function updateAdminOnlyVisibility() {
   }
 }
 
-// USDC/KRW 두 통화의 증권을 함께 채워 넣는 공통 드롭다운 채우기 —
+// 현재 화면 통화(currencyMode)의 증권만 채워 넣는 공통 드롭다운 채우기 —
 // 실제 값은 "USDC-3"/"KRW-3" 같은 합성 ID로 저장해 어느 컨트랙트로 보낼지 구분한다.
-// 보험금청구/보험료납입/자동납부/약관대출/만기환급 5개 탭 모두 이 함수로 채워지므로,
-// 어느 탭에서든 통화에 상관없이 자신의 모든 증권을 보고 선택할 수 있다.
+// 보험금청구/보험료납입/자동납부/약관대출/만기환급 5개 탭 모두 이 함수로 채워지며,
+// 목록 테이블(보험증권 관리/청구 내역)과 동일하게 currencyMode와 다른 통화의 증권은
+// 섞이지 않도록 제외한다 — 다른 통화 증권을 다루려면 상단에서 통화를 전환해야 한다.
 function populateCompositeSelect(selId, rows) {
   const sel = el(selId);
   if (!sel) return;
-  const myRows = userAddr
+  const allMyRows = userAddr
     ? rows.filter(({ p }) => p.patient.toLowerCase() === userAddr.toLowerCase())
     : [];
+  const myRows = allMyRows.filter(({ ccy }) => ccy === currencyMode);
+  const hasOtherCcy = myRows.length === 0 && allMyRows.length > 0;
   const cur = sel.value;
-  sel.innerHTML = `<option value="">-- 증권 선택 --</option>` +
+  const placeholder = hasOtherCcy
+    ? `<option value="">-- ${currencyMode === 'KRW' ? 'USDC' : 'KRW'} 증권만 있습니다. 상단에서 통화를 전환하세요 --</option>`
+    : `<option value="">-- 증권 선택 --</option>`;
+  sel.innerHTML = placeholder +
     myRows.map(({ p, ccy }) => {
       const val = compositeId(ccy, p.id);
       return `<option value="${val}" ${val === cur ? "selected" : ""}>[${ccy}] #${p.id} - ${p.patientName} (월 ${fmtByCcy(p.monthlyPremium, ccy)})</option>`;

@@ -1782,6 +1782,9 @@ class InsuranceChatbot:
         # 사전 라우팅: 의도 분류 → 보험다모아 데이터 선조회
         pre_context = self._pre_fetch_insmarket(user_message)
 
+        # 블록체인 온체인 조회 응답에는 관련 뉴스 섹션을 붙이지 않는다
+        used_blockchain_tool = False
+
         max_iterations = 10
         for _ in range(max_iterations):
             messages = [{"role": "system", "content": _build_system_prompt(self.wallet_address)}]
@@ -1814,7 +1817,8 @@ class InsuranceChatbot:
                     "content": final_text,
                 })
                 # 항상 실제 URL 뉴스 섹션으로 교체 (GPT 생성 뉴스 섹션 제거 후 추가)
-                news = self._build_news_section(user_message)
+                # 단, 블록체인 온체인 조회 결과에는 무관한 보험 뉴스를 붙이지 않는다
+                news = "" if used_blockchain_tool else self._build_news_section(user_message)
                 if news:
                     if "📰 관련 최신 뉴스" in final_text:
                         idx = final_text.index("📰 관련 최신 뉴스")
@@ -1825,6 +1829,8 @@ class InsuranceChatbot:
 
             elif finish_reason == "tool_calls":
                 tool_calls = choice.message.tool_calls or []
+                if any(tc.function.name == "get_blockchain_dental_status" for tc in tool_calls):
+                    used_blockchain_tool = True
 
                 # 어시스턴트 메시지(tool_calls 포함) 히스토리에 추가
                 self.conversation_history.append({
@@ -1870,6 +1876,9 @@ class InsuranceChatbot:
         """
         self.conversation_history.append({"role": "user", "content": user_message})
 
+        # 블록체인 온체인 조회 응답에는 관련 뉴스 섹션을 붙이지 않는다
+        used_blockchain_tool = False
+
         max_iterations = 10
         for _ in range(max_iterations):
             stream = self.client.chat.completions.create(
@@ -1912,9 +1921,13 @@ class InsuranceChatbot:
             if finish_reason == "stop":
                 self.conversation_history.append({"role": "assistant", "content": full_content})
                 # 항상 실제 URL 뉴스 섹션으로 교체 (GPT 생성 뉴스 섹션 제거 후 추가)
-                yield {"type": "tool_start", "tool": "_news_search"}
-                news = self._build_news_section(user_message)
-                yield {"type": "tool_done", "tool": "_news_search"}
+                # 단, 블록체인 온체인 조회 결과에는 무관한 보험 뉴스를 붙이지 않는다
+                if used_blockchain_tool:
+                    news = ""
+                else:
+                    yield {"type": "tool_start", "tool": "_news_search"}
+                    news = self._build_news_section(user_message)
+                    yield {"type": "tool_done", "tool": "_news_search"}
                 if news:
                     if "📰 관련 최신 뉴스" in full_content:
                         idx = full_content.index("📰 관련 최신 뉴스")
@@ -1926,6 +1939,8 @@ class InsuranceChatbot:
 
             elif finish_reason == "tool_calls":
                 tool_calls_list = [tool_calls_acc[i] for i in sorted(tool_calls_acc.keys())]
+                if any(tc["name"] == "get_blockchain_dental_status" for tc in tool_calls_list):
+                    used_blockchain_tool = True
 
                 self.conversation_history.append({
                     "role": "assistant",
