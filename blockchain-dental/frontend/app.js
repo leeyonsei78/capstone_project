@@ -961,6 +961,15 @@ async function loadContracts(usdcAddress, insAddress) {
     usdcAddr = usdcAddress;
     insAddr  = insAddress;
 
+    // 통화 전환(switchCurrency) 시 이 함수가 다시 호출되면서 insCtx가 새 Contract
+    // 인스턴스로 교체된다. provider는 세션 내내 재사용되는 공유 객체라, 예전 insCtx에
+    // attachEventListeners()로 걸어둔 리스너(PolicyCreated 등)를 여기서 정리하지
+    // 않으면 provider 쪽에는 계속 살아있게 된다 — USDC↔KRW를 여러 번 오가면 같은
+    // 통화로 돌아올 때마다 리스너가 하나씩 더 쌓여, 실제 이벤트 1건에 이메일/Slack
+    // 알림이 통화 전환 횟수만큼 중복 발송되는 버그가 있었음 (2026-09-18 발견 — 사용자가
+    // 같은 증권 발급 이메일을 5통씩 받음). 새 인스턴스를 만들기 전에 이전 것부터 정리.
+    if (insCtx) insCtx.removeAllListeners();
+
     addLog("info", "컨트랙트 인스턴스 생성",
       `USDC : ${usdcAddr}\n보험 : ${insAddr}`);
 
