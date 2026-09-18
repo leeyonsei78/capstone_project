@@ -84,6 +84,13 @@ SETUP.md                 새 PC 1회성 설치 가이드 (프로그램, MetaMask
   `blockchain_bridge.py` 양쪽 다 첫 단계에서 `docker compose up -d mailpit`을 실행하도록
   추가했고(Docker 없어도 나머지 흐름은 계속 진행, 이메일만 안 나감), `SERVICE_PROCESSES`
   에도 `email-service.js`를 등록해 psutil 기반 idempotent 재기동 대상에 포함시킴.
+  ⚠️ 처음 배포했을 때 CORS 헤더가 빠져 있어서, curl/Node 스크립트로 직접 호출한
+  테스트는 다 통과했는데도 실제 브라우저(`frontend/app.js`의 `fetch`)에서는
+  "Failed to fetch"로 조용히 실패해 메일이 전혀 안 갔던 적이 있음(2026-09-18,
+  사용자가 브라우저로 직접 청약해보고 신고 → `Access-Control-Allow-*` 헤더 +
+  OPTIONS 프리플라이트 처리 추가로 해결). **프론트엔드가 fetch로 호출하는 로컬
+  서비스를 새로 만들 땐 curl/Node 테스트만으로는 안 되고 반드시 실제 브라우저
+  탭에서 확인할 것** — CORS는 브라우저 밖에서는 재현되지 않는다.
 
 ## 알아두면 좋은 것들
 
