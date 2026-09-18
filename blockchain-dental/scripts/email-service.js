@@ -180,7 +180,29 @@ function readJsonBody(req) {
   });
 }
 
+// 프론트엔드(http://localhost:3000)가 이 서비스(http://localhost:5679)를 fetch로
+// 호출하는 건 포트가 달라 브라우저 기준 cross-origin 요청이다. CORS 헤더 없이는
+// (특히 JSON POST라 브라우저가 먼저 보내는 OPTIONS preflight가 막혀) 브라우저에서
+// 호출 시 "Failed to fetch"로 조용히 실패한다 — 서버 로그엔 아무것도 안 남아 원인
+// 파악이 어려움 (2026-09-18 발견: 실제 브라우저로 청약 테스트했는데 메일이 전혀
+// 발송되지 않음). curl/Node 스크립트로 직접 호출한 테스트는 브라우저가 아니라
+// CORS 제한을 받지 않아 이 문제를 놓쳤었다 — 웹훅을 브라우저 fetch로 호출하는
+// 서비스를 새로 만들 땐 반드시 실제 브라우저로도 확인할 것.
+function withCors(res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
 const server = http.createServer(async (req, res) => {
+  withCors(res);
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
   if (req.method !== "POST" || req.url !== "/notify") {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok: false, error: "not found" }));
