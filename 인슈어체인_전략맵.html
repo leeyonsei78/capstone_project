@@ -1,0 +1,790 @@
+<title>인슈어체인 전략맵</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+  :root{
+    --paper:#F6F3EC;
+    --ink:#1E2433;
+    --ink-soft:#5A5E68;
+    --navy:#16233F;
+    --navy-soft:#2B3A5C;
+    --gold:#B8862F;
+    --gold-soft:#F1E4C4;
+    --teal:#1F7A6C;
+    --teal-soft:#D7EAE5;
+    --terracotta:#B5573A;
+    --terracotta-soft:#F3DED4;
+    --line:#DCD3BF;
+    --card:#FFFFFF;
+    --card-alt:#EFEAE0;
+    --shadow:0 1px 2px rgba(30,36,51,.05), 0 10px 28px rgba(22,35,63,.08);
+    --font-display:'Noto Serif KR', serif;
+    --font-body:'Noto Sans KR', sans-serif;
+    --font-mono:'IBM Plex Mono', monospace;
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--font-body);
+    margin:0;
+    padding-inline:20px;
+    padding-block:40px 64px;
+  }
+
+  .wrap{max-width:1080px;margin-inline:auto;}
+
+  /* ---- masthead ---- */
+  .masthead{margin-bottom:40px;}
+  .eyebrow{
+    font-family:var(--font-mono);
+    font-size:.72rem;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--gold);
+    margin:0 0 10px;
+  }
+  .masthead h1{
+    font-family:var(--font-display);
+    font-weight:700;
+    font-size:clamp(1.6rem, 4vw, 2.4rem);
+    line-height:1.25;
+    margin:0 0 8px;
+    color:var(--navy);
+    text-wrap:balance;
+  }
+  .masthead .subtitle{
+    margin:0 0 6px;
+    font-size:1rem;
+    color:var(--ink-soft);
+  }
+  .masthead .note{
+    margin:0;
+    font-size:.82rem;
+    color:var(--ink-soft);
+    font-style:italic;
+  }
+
+  /* ---- deck / slide shell ---- */
+  .deck{display:flex;flex-direction:column;gap:28px;}
+  .slide{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:clamp(1.4rem, 3vw, 2.6rem);
+    box-shadow:var(--shadow);
+  }
+  .slide-head{display:flex;align-items:flex-start;gap:16px;margin-bottom:6px;}
+  .badge{
+    flex:none;
+    width:34px;height:34px;
+    display:flex;align-items:center;justify-content:center;
+    background:var(--navy);
+    color:var(--paper);
+    font-family:var(--font-mono);
+    font-weight:600;
+    font-size:1rem;
+    border-radius:8px;
+  }
+  .kicker{
+    font-family:var(--font-mono);
+    font-size:.7rem;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--gold);
+    margin:2px 0 4px;
+  }
+  .slide-title{
+    font-family:var(--font-display);
+    font-weight:700;
+    font-size:1.5rem;
+    margin:0;
+    color:var(--navy);
+  }
+  .slide-sub{
+    font-size:1.02rem;
+    font-weight:700;
+    color:var(--ink);
+    margin:18px 0 4px;
+  }
+  .rule{
+    border:none;
+    border-top:1px solid var(--line);
+    margin:14px 0 22px;
+  }
+
+  .lede{
+    font-family:var(--font-display);
+    font-size:1.12rem;
+    line-height:1.6;
+    color:var(--navy-soft);
+    background:var(--card-alt);
+    border-left:3px solid var(--gold);
+    padding:14px 18px;
+    margin:0 0 24px;
+    text-wrap:balance;
+  }
+
+  ul.bullets{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px;}
+  ul.bullets li{
+    position:relative;
+    padding-left:16px;
+    font-size:.92rem;
+    line-height:1.55;
+    color:var(--ink);
+  }
+  ul.bullets li::before{
+    content:"▸";
+    position:absolute;left:0;top:0;
+    color:var(--gold);
+    font-size:.8rem;
+  }
+
+  /* ---- slide 1: 3C overview / frame diagram ---- */
+  .overview-grid{
+    display:grid;
+    grid-template-columns:1.1fr 1fr;
+    gap:32px;
+    align-items:start;
+  }
+  .frame-diagram{
+    background:var(--card-alt);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:24px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:10px;
+  }
+  .frame-row{display:flex;gap:14px;width:100%;}
+  .frame-box{
+    flex:1;
+    text-align:center;
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:9px;
+    padding:12px 8px;
+    font-weight:700;
+    font-size:.86rem;
+    color:var(--navy);
+  }
+  .frame-arrows{display:flex;gap:14px;width:100%;}
+  .frame-arrows span{flex:1;text-align:center;color:var(--gold);font-size:1.1rem;}
+  .frame-oval{
+    background:var(--navy);
+    color:var(--paper);
+    border-radius:999px;
+    padding:12px 30px;
+    font-weight:700;
+    font-size:.9rem;
+  }
+  .frame-caption{
+    margin:4px 0 0;
+    font-family:var(--font-mono);
+    font-size:.72rem;
+    color:var(--ink-soft);
+  }
+
+  /* ---- slide 2: 3C example ---- */
+  .c3-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;}
+  .c3-card{
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:18px 16px;
+    background:var(--card);
+    border-top:4px solid var(--navy);
+  }
+  .c3-card.customer{border-top-color:var(--gold);}
+  .c3-card.competitor{border-top-color:var(--teal);}
+  .c3-mark{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:30px;height:30px;
+    border-radius:50%;
+    background:var(--navy-soft);
+    color:var(--paper);
+    font-family:var(--font-mono);
+    font-weight:600;
+    font-size:.85rem;
+    margin-bottom:10px;
+  }
+  .c3-card.customer .c3-mark{background:var(--gold);}
+  .c3-card.competitor .c3-mark{background:var(--teal);}
+  .c3-card h3{
+    font-family:var(--font-body);
+    font-size:.98rem;
+    margin:0 0 10px;
+    color:var(--navy);
+  }
+
+  /* ---- slide 3: PEST ---- */
+  .pest-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  .pest-card{
+    border-radius:12px;
+    padding:18px 16px;
+    border:1px solid var(--line);
+  }
+  .pest-p{background:var(--card);border-top:4px solid var(--navy);}
+  .pest-e{background:var(--card);border-top:4px solid var(--gold);}
+  .pest-s{background:var(--card);border-top:4px solid var(--terracotta);}
+  .pest-t{background:var(--card);border-top:4px solid var(--teal);}
+  .pest-mark{
+    font-family:var(--font-mono);
+    font-weight:700;
+    font-size:1.3rem;
+    display:block;
+    margin-bottom:6px;
+  }
+  .pest-p .pest-mark{color:var(--navy);}
+  .pest-e .pest-mark{color:var(--gold);}
+  .pest-s .pest-mark{color:var(--terracotta);}
+  .pest-t .pest-mark{color:var(--teal);}
+  .pest-card h3{font-size:.98rem;margin:0 0 10px;color:var(--ink);}
+
+  /* ---- slide 4: SWOT ---- */
+  .swot-layout{display:flex;gap:22px;align-items:stretch;}
+  .swot-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px;
+    flex:1 1 auto;
+  }
+  .swot-card{border-radius:12px;padding:16px 15px;border:1px solid var(--line);}
+  .swot-s{background:var(--teal-soft);}
+  .swot-w{background:var(--terracotta-soft);}
+  .swot-o{background:var(--gold-soft);}
+  .swot-t{background:#E4E8F0;}
+  .swot-card .swot-mark{
+    font-family:var(--font-mono);
+    font-weight:700;
+    font-size:1rem;
+    margin:0 0 8px;
+  }
+  .swot-s .swot-mark{color:var(--teal);}
+  .swot-w .swot-mark{color:var(--terracotta);}
+  .swot-o .swot-mark{color:var(--gold);}
+  .swot-t .swot-mark{color:var(--navy);}
+  .swot-card h3{font-size:.88rem;margin:0 0 8px;color:var(--ink);}
+  .swot-card ul.bullets li{font-size:.82rem;}
+  .fix{
+    margin-top:5px;
+    padding-left:2px;
+    font-size:.76rem;
+    line-height:1.45;
+    color:var(--teal);
+    font-weight:500;
+  }
+  .flip{
+    margin-top:5px;
+    padding-left:2px;
+    font-size:.76rem;
+    line-height:1.45;
+    color:var(--gold);
+    font-weight:600;
+  }
+
+  .insight-stack{
+    display:flex;flex-direction:column;justify-content:center;gap:14px;
+    width:220px;flex:none;
+  }
+  .insight-box{
+    border-radius:10px;
+    padding:16px;
+    font-size:.86rem;
+    line-height:1.5;
+    font-weight:600;
+    color:var(--paper);
+  }
+  .insight-box.a{background:var(--terracotta);}
+  .insight-box.b{background:var(--navy);}
+
+  .why-head{
+    font-size:1rem;
+    font-weight:700;
+    color:var(--navy);
+    margin:26px 0 4px;
+  }
+  .why-note{
+    font-size:.82rem;
+    color:var(--ink-soft);
+    margin:0 0 14px;
+  }
+  .why-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+  .why-card{
+    background:var(--card-alt);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:14px 15px;
+  }
+  .why-stage{
+    display:inline-block;
+    font-family:var(--font-mono);
+    font-size:.68rem;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--paper);
+    background:var(--navy);
+    padding:3px 9px;
+    border-radius:999px;
+    margin-bottom:9px;
+  }
+  .why-before{
+    font-size:.78rem;
+    color:var(--ink-soft);
+    margin:0 0 5px;
+  }
+  .why-before::before{content:"기존: ";font-weight:700;}
+  .why-after{
+    font-size:.82rem;
+    color:var(--teal);
+    font-weight:600;
+    line-height:1.45;
+    margin:0;
+  }
+  .why-after::before{content:"⛓ 온체인+스테이블코인: ";font-weight:700;}
+
+  /* ---- slide 5: logic tree ---- */
+  .tree-layout{
+    display:grid;
+    grid-template-columns:150px 1fr 190px;
+    gap:18px;
+    align-items:stretch;
+  }
+  .tree-problem{
+    display:flex;align-items:center;justify-content:center;
+    text-align:center;
+    background:var(--navy);
+    color:var(--paper);
+    border-radius:50%;
+    aspect-ratio:1/1;
+    width:150px;
+    padding:14px;
+    font-weight:700;
+    font-size:.88rem;
+    line-height:1.4;
+    align-self:center;
+  }
+  .tree-branches{display:flex;flex-direction:column;gap:16px;}
+  .branch-row{
+    display:flex;align-items:center;gap:10px;
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:14px;
+    background:var(--card-alt);
+  }
+  .branch-num{
+    flex:none;
+    font-family:var(--font-mono);
+    font-weight:700;
+    font-size:1rem;
+    color:var(--gold);
+    width:22px;
+  }
+  .cause-box{
+    flex:0 0 150px;
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:10px 12px;
+    font-size:.82rem;
+    font-weight:700;
+    color:var(--navy);
+  }
+  .arrow-h{color:var(--gold);font-size:1rem;flex:none;}
+  .arrow-v{display:none;color:var(--gold);font-size:1rem;text-align:center;}
+  .root-stack{
+    flex:1 1 auto;
+    display:flex;flex-direction:column;gap:6px;
+    min-width:0;
+  }
+  .root-box{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:8px 10px;
+    font-size:.78rem;
+    color:var(--ink-soft);
+  }
+  .task-box{
+    flex:0 0 190px;
+    background:var(--teal-soft);
+    border:1px solid var(--teal);
+    border-radius:8px;
+    padding:10px 12px;
+    font-size:.82rem;
+    font-weight:700;
+    color:var(--teal);
+  }
+  .tree-solution{
+    display:flex;align-items:center;
+    background:var(--gold-soft);
+    border:2px solid var(--gold);
+    border-radius:12px;
+    padding:18px;
+    font-family:var(--font-display);
+    font-weight:700;
+    font-size:.98rem;
+    line-height:1.5;
+    color:var(--navy);
+    align-self:stretch;
+  }
+
+  /* ---- responsive ---- */
+  @media (max-width:760px){
+    .overview-grid{grid-template-columns:1fr;}
+    .c3-grid{grid-template-columns:1fr;}
+    .pest-grid{grid-template-columns:1fr;}
+    .swot-layout{flex-direction:column;}
+    .swot-grid{grid-template-columns:1fr 1fr;}
+    .why-grid{grid-template-columns:1fr;}
+    .insight-stack{width:100%;flex-direction:row;}
+    .insight-box{flex:1;}
+    .tree-layout{grid-template-columns:1fr;}
+    .tree-problem{width:120px;height:120px;margin-inline:auto;}
+    .branch-row{flex-direction:column;align-items:stretch;}
+    .cause-box{flex:none;}
+    .task-box{flex:none;}
+    .arrow-h{display:none;}
+    .arrow-v{display:block;}
+  }
+  @media (max-width:480px){
+    .swot-grid{grid-template-columns:1fr;}
+    .insight-stack{flex-direction:column;}
+  }
+
+  @media print{
+    body{background:#fff;padding:0;}
+    .wrap{max-width:none;}
+    .masthead{margin-bottom:22px;}
+    .deck{gap:0;}
+    .slide{
+      box-shadow:none;
+      border:1px solid var(--line);
+      break-inside:avoid;
+      page-break-inside:avoid;
+    }
+    .slide + .slide{
+      break-before:page;
+      page-break-before:always;
+      margin-top:0;
+    }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Capstone Strategy Deck</p>
+    <h1>보험상담 AI Agent와 블록체인 인슈어테크</h1>
+    <p class="subtitle">3C · PEST · SWOT · Logic Tree로 정리한 캡스톤 프로젝트 전략 분석</p>
+    <p class="note">※ 이후 PPT 슬라이드로 옮길 것을 염두에 두고, 슬라이드 단위(카드)로 구성했습니다.</p>
+  </header>
+
+  <div class="deck">
+
+    <!-- Slide 1: Logic Tree -->
+    <section class="slide">
+      <div class="slide-head">
+        <span class="badge">1</span>
+        <div>
+          <p class="kicker">Problem Structuring</p>
+          <h2 class="slide-title">Logic Tree</h2>
+        </div>
+      </div>
+      <p class="slide-sub">Logic Tree 예시 — 보험상담 AI Agent × 블록체인 인슈어테크</p>
+      <hr class="rule">
+      <div class="tree-layout">
+        <div class="tree-problem">보험 가입·청구 과정에서<br>소비자가 겪는<br>비효율과 불신</div>
+
+        <div class="tree-branches">
+          <div class="branch-row">
+            <span class="branch-num">①</span>
+            <div class="cause-box">상품 비교·선택의 어려움</div>
+            <span class="arrow-h">→</span>
+            <span class="arrow-v">↓</span>
+            <div class="root-stack">
+              <div class="root-box">특약·조건이 복잡해 상품 간 비교가 어려움</div>
+              <div class="root-box">소비자의 보험 전문지식 부족</div>
+              <div class="root-box">상담 채널이 영업점·콜센터에 의존</div>
+            </div>
+            <span class="arrow-h">→</span>
+            <span class="arrow-v">↓</span>
+            <div class="task-box">실시간 데이터 기반 맞춤 상담 AI Agent 개발</div>
+          </div>
+
+          <div class="branch-row">
+            <span class="branch-num">②</span>
+            <div class="cause-box">청구·지급 절차의 불투명성과 지연</div>
+            <span class="arrow-h">→</span>
+            <span class="arrow-v">↓</span>
+            <div class="root-stack">
+              <div class="root-box">서류 기반 수작업 심사로 처리 지연</div>
+              <div class="root-box">심사 진행 상황을 고객이 실시간으로 알 수 없음</div>
+            </div>
+            <span class="arrow-h">→</span>
+            <span class="arrow-v">↓</span>
+            <div class="task-box">청구 접수~심사~지급을 자동화·투명화하는 온체인 시스템 개발</div>
+          </div>
+
+          <div class="branch-row">
+            <span class="branch-num">③</span>
+            <div class="cause-box">가입 후 사후관리 공백</div>
+            <span class="arrow-h">→</span>
+            <span class="arrow-v">↓</span>
+            <div class="root-stack">
+              <div class="root-box">보험료 미납·만기 알림이 사후적으로만 제공</div>
+              <div class="root-box">준비금 부족 등 보험사 리스크를 고객이 파악할 방법 없음</div>
+            </div>
+            <span class="arrow-h">→</span>
+            <span class="arrow-v">↓</span>
+            <div class="task-box">사전 알림 + 리스크 실시간 모니터링 체계 개발</div>
+          </div>
+        </div>
+
+        <div class="tree-solution">AI 상담 챗봇과 블록체인 스마트컨트랙트를 결합해, 상품 추천부터 가입·청구·지급·사후관리까지 전 과정을 자동화·투명화하는 보험 플랫폼 개발</div>
+      </div>
+    </section>
+
+    <!-- Slide 2: PEST -->
+    <section class="slide">
+      <div class="slide-head">
+        <span class="badge">2</span>
+        <div>
+          <p class="kicker">Macro Environment</p>
+          <h2 class="slide-title">산업거시환경 분석</h2>
+        </div>
+      </div>
+      <p class="slide-sub">PEST Analysis 예시 — 인슈어테크 산업 환경</p>
+      <hr class="rule">
+      <p class="lede">방향성 검증 — 카드사가 검증한 결제 승인·취소·환불·정산 프로세스, 한국은행이 주도하는 은행 중심 원화 결제 인프라 모두 "온체인 스테이블코인 기반 자동 결제·정산"을 향하고 있음 — 본 프로젝트의 보험료 납입/청구 지급 온체인 설계와 방향이 일치</p>
+      <div class="pest-grid">
+        <article class="pest-card pest-p">
+          <span class="pest-mark">P</span>
+          <h3>Political</h3>
+          <ul class="bullets">
+            <li>보험업법·전자금융거래법 등 기존 규제 체계 적용</li>
+            <li>정부의 블록체인 활용 시범사업 확대 기조</li>
+            <li>마이데이터 정책 확대, 건강정보 처리 관련 개인정보보호법 규제</li>
+            <li>대안신용평가·마이데이터 활용 포용금융 정책 확대 — 씬파일러 신용보완 근거 마련</li>
+            <li>스테이블코인 제도화 가속 — 디지털자산 기본법(가칭) 국회 발의 추진, 은행 컨소시엄 주도의 원화 스테이블코인 발행 구조 논의, 美 GENIUS Act·EU MiCA 등 해외 입법 확산</li>
+            <li>한국은행: CBDC·예금토큰 파일럿(프로젝트 한강 등)이 실거래 증명 단계로 진입 — 은행 중심 원화 디지털 결제 인프라 주도권 강화</li>
+          </ul>
+        </article>
+        <article class="pest-card pest-e">
+          <span class="pest-mark">E</span>
+          <h3>Economic</h3>
+          <ul class="bullets">
+            <li>국내 보험시장 성장 정체 vs 인슈어테크 투자 확대</li>
+            <li>치아보험 시장의 꾸준한 수요</li>
+            <li>스테이블코인 제도권 편입으로 온체인 결제·정산 인프라가 규제 리스크에서 신뢰 기반 인프라로 전환 중</li>
+            <li>카드사 9개사·람다256, 스테이블코인 결제 승인·취소·환불·정산 전 과정 기술검증 완료 — 여신금융협회 2차 TF로 표준 정산모델 마련 중</li>
+            <li>USDC·원화 스테이블코인 기반 보험료 납입 — 환전 없는 즉시 결제로 거래비용 절감</li>
+          </ul>
+        </article>
+        <article class="pest-card pest-s">
+          <span class="pest-mark">S</span>
+          <h3>Social</h3>
+          <ul class="bullets">
+            <li>비대면·셀프서비스 선호 확산</li>
+            <li>불완전판매·지급 지연에 대한 소비자 불신</li>
+            <li>AI 챗봇 상담 수용도 증가, 간편 가입·청구 니즈 확대</li>
+            <li>신용 사각지대(씬파일러)·유병력자 등 금융소외계층 포용에 대한 사회적 요구 증가</li>
+          </ul>
+        </article>
+        <article class="pest-card pest-t">
+          <span class="pest-mark">T</span>
+          <h3>Technology</h3>
+          <ul class="bullets">
+            <li>LLM 기반 상담 자동화 기술 성숙(GPT-4o)</li>
+            <li>스마트컨트랙트·온체인 오라클 심사 기술 발전</li>
+            <li>웹3 지갑(메타마스크) 대중화는 아직 초기 단계</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <!-- Slide 3: 3C 개요 -->
+    <section class="slide">
+      <div class="slide-head">
+        <span class="badge">3</span>
+        <div>
+          <p class="kicker">Environment Analysis Framework</p>
+          <h2 class="slide-title">3C 분석</h2>
+        </div>
+      </div>
+      <p class="slide-sub">3C 분석 개요</p>
+      <hr class="rule">
+      <div class="overview-grid">
+        <div>
+          <ul class="bullets">
+            <li>자사(Company)·고객(Customer)·경쟁사(Competitor) 세 축으로 사업 환경의 핵심 변수를 동시에 진단</li>
+            <li>진단 결과를 바탕으로 어디에 자원을 집중하고 무엇으로 차별화할지 전략 방향을 도출</li>
+            <li>PEST로 짚은 거시환경과 함께, 이어지는 SWOT 전략 수립의 기초 자료로 연결됨</li>
+          </ul>
+        </div>
+        <div class="frame-diagram">
+          <div class="frame-row">
+            <div class="frame-box">PEST 분석</div>
+            <div class="frame-box">3Cs 분석</div>
+          </div>
+          <div class="frame-arrows"><span>↓</span><span>↓</span></div>
+          <div class="frame-oval">SWOT 분석</div>
+          <p class="frame-caption">그림 1 — 환경분석 프레임</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4: 3C 예시 -->
+    <section class="slide">
+      <div class="slide-head">
+        <span class="badge">3</span>
+        <div>
+          <p class="kicker">Environment Analysis Framework</p>
+          <h2 class="slide-title">3C 분석</h2>
+        </div>
+      </div>
+      <p class="slide-sub">3C 분석 예시 — 보험상담 AI Agent × 블록체인 인슈어테크</p>
+      <hr class="rule">
+      <p class="lede">"AI 상담으로 '상품 선택'의 마찰을, 블록체인 자동화로 '청구 신뢰'의 문제를 동시에 해결하는 이중 차별화 필요"</p>
+      <div class="c3-grid">
+        <article class="c3-card company">
+          <span class="c3-mark">C</span>
+          <h3>Company — 자사</h3>
+          <ul class="bullets">
+            <li>GPT-4o 기반 AI Agent(자율 tool-calling 루프)가 상담·상품추천 수행 + 스마트컨트랙트 자동 청구·지급 결합</li>
+            <li>언더라이팅 AI Agent 17종 도구를 스스로 판단·실행, 신용점수 서브에이전트와 이중 구조로 정밀 심사</li>
+            <li>신용정보 부족(씬파일러)·건강검진 결과·최근 병력을 알려줘도 대안신용평가·유병자 요율·건강체 할인으로 맞춤 상품 자동 설계</li>
+            <li>가입부터 지급까지 온체인 기록 + Slack 실시간 알림으로 운영 투명성 확보</li>
+          </ul>
+        </article>
+        <article class="c3-card customer">
+          <span class="c3-mark">C</span>
+          <h3>Customer — 고객</h3>
+          <ul class="bullets">
+            <li>상품 비교·선택에 어려움을 겪는 보험 가입 희망자</li>
+            <li>기존 치아보험 청구 절차(서류·대기)에 불편을 느끼는 가입자</li>
+            <li>신용정보 부족(씬파일러)·지병·건강검진 이상소견 등으로 기존 채널에서 거절·고비용 안내를 받던 고객</li>
+            <li>블록체인·핀테크 수용도가 높은 2030 얼리어답터</li>
+          </ul>
+        </article>
+        <article class="c3-card competitor">
+          <span class="c3-mark">C</span>
+          <h3>Competitor — 경쟁사</h3>
+          <ul class="bullets">
+            <li>보험사 다이렉트 채널 — 상담은 있으나 AI 실시간 맞춤 추천 부재</li>
+            <li>보험다모아 등 공시 비교 플랫폼 — 가격 비교만 가능, 상담·가입·청구 미연계</li>
+            <li>국내 블록체인 인슈어테크 — AI 상담+온체인 자동화 결합 사례 거의 전무</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <!-- Slide 5: SWOT -->
+    <section class="slide">
+      <div class="slide-head">
+        <span class="badge">4</span>
+        <div>
+          <p class="kicker">Strategic Position</p>
+          <h2 class="slide-title">SWOT 분석</h2>
+        </div>
+      </div>
+      <p class="slide-sub">SWOT 분석 예시 — 보험상담 AI Agent × 블록체인 인슈어테크</p>
+      <hr class="rule">
+      <div class="swot-layout">
+        <div class="swot-grid">
+          <article class="swot-card swot-s">
+            <p class="swot-mark">STRENGTHS</p>
+            <ul class="bullets">
+              <li>AI Agent(상담·언더라이팅 자율 수행) + 스마트컨트랙트 자동화를 모두 갖춘 통합 아키텍처</li>
+              <li>청구~지급 전 과정 온체인 투명성</li>
+              <li>AI Agent(자율 심사 실행) × AI 어드바이저(참고용 권고)의 이중 구조 — 자동화 수준을 용도별로 설계</li>
+              <li>Slack 실시간 알림 + AI 어드바이저로 운영 효율화</li>
+              <li>USDC·원화 스테이블코인 이중 통화 구조 — 환전 없이 즉시 정산, 해외 송금 비용·시간 절감</li>
+              <li>신용정보 부족(씬파일러)·건강검진 결과·병력을 알려줘도 대안신용평가·유병자 요율로 맞춤 상품 제안</li>
+            </ul>
+          </article>
+          <article class="swot-card swot-w">
+            <p class="swot-mark">WEAKNESSES</p>
+            <ul class="bullets">
+              <li>스마트컨트랙트 불변성 — 로직 수정 어려움(업그레이드 프록시 미적용)
+                <div class="fix">→ 보완: 담보 선택·보험료 계산 등 자주 바뀌는 로직은 프론트엔드/오프체인으로 분리, 향후 프록시 패턴 도입 검토</div>
+              </li>
+              <li>지갑 온보딩 등 가입 진입장벽
+                <div class="fix">→ 보완: 관리자 지원 온보딩 제공, 계정 추상화 기반 소셜로그인 지갑 연동 검토</div>
+              </li>
+              <li>건강정보 등 민감정보를 AI·온체인에 노출하는 프라이버시 부담
+                <div class="fix">→ 보완: AI 검토 결과는 항상 참고용(자동 승인·거절 금지), 민감정보는 로컬 LLM 폴백으로 외부 전송 최소화, 프롬프트 인젝션 가드 적용</div>
+              </li>
+            </ul>
+          </article>
+          <article class="swot-card swot-o">
+            <p class="swot-mark">OPPORTUNITIES</p>
+            <ul class="bullets">
+              <li>인슈어테크 시장 성장 + 정부 블록체인 시범사업 지원</li>
+              <li>마이데이터 연계로 개인 맞춤 추천 고도화 가능</li>
+              <li>로컬 LLM 도입으로 프라이버시 강화 모델 확장 가능</li>
+              <li>오라클 고도화로 완전 무인 심사 확장 여지</li>
+            </ul>
+          </article>
+          <article class="swot-card swot-t">
+            <p class="swot-mark">THREATS</p>
+            <ul class="bullets">
+              <li>대형 보험사·빅테크의 유사 AI 상담 서비스 진입
+                <div class="flip">→ 기회로: 실제 작동하는 "AI Agent + 온체인 자동화" 레퍼런스를 먼저 확보 — 후발주자에게 백오피스 솔루션으로 라이선스·제휴 제안 가능</div>
+              </li>
+              <li>블록체인 관련 규제 불확실성
+                <div class="flip">→ 기회로: 디지털자산 기본법 등 제도 정비 초기 단계 — 실증 사례로 규제 샌드박스·정부 시범사업 참여를 선점</div>
+              </li>
+              <li>스마트컨트랙트 보안 감사 미비에 따른 취약점 리스크
+                <div class="flip">→ 기회로: 정식 서비스 전환 시 외부 감사·오픈소스 공개를 신뢰도 입증 요소로 활용, 커뮤니티 검증 유도</div>
+              </li>
+              <li>LLM 환각(hallucination)으로 인한 상담 신뢰성 저하 우려
+                <div class="flip">→ 기회로: "AI 결과는 항상 참고용" 구조 자체가 차별화 포인트 — 환각 위험을 구조적으로 통제하는 인슈어테크로 포지셔닝</div>
+              </li>
+            </ul>
+          </article>
+        </div>
+        <div class="insight-stack">
+          <div class="insight-box a">강점×기회 — AI 상담과 온체인 자동화로 상품 선택부터 청구·지급까지 신뢰성 극대화</div>
+          <div class="insight-box b">전략 방향 — "신뢰할 수 있는 인슈어테크" 포지셔닝: AI와 블록체인이 만드는 투명한 보험 경험, 스테이블코인 제도화 흐름에 올라탄 글로벌 정산 확장, 신용·병력으로 소외되던 고객까지 포용하는 맞춤형 언더라이팅</div>
+        </div>
+      </div>
+
+      <p class="why-head">왜 블록체인 + 스테이블코인인가 — 보험 밸류체인 단계별 효과</p>
+      <p class="why-note">앞의 강점·전략을 보험 처리 단계에 대입하면, 각 단계마다 기존 방식의 한계가 구체적으로 해소됩니다.</p>
+      <div class="why-grid">
+        <article class="why-card">
+          <span class="why-stage">보험청약</span>
+          <p class="why-before">약관·조건이 문서로만 존재해 이후 해석·변경 여지가 생김</p>
+          <p class="why-after">가입 조건이 스마트컨트랙트 코드로 고정 — 청약 시점 그대로 불변 기록</p>
+        </article>
+        <article class="why-card">
+          <span class="why-stage">보험료 지급(납입)</span>
+          <p class="why-before">은행 영업시간·환전에 묶여 납입 시점이 제한됨</p>
+          <p class="why-after">USDC·원화 스테이블코인으로 24/7 환전 없이 즉시 납입, 실패 시 즉시 Slack 알림</p>
+        </article>
+        <article class="why-card">
+          <span class="why-stage">보험금 청구</span>
+          <p class="why-before">서류 제출 후 영업일 단위로 수작업 심사 대기</p>
+          <p class="why-after">오라클이 청구를 자동 심사, 조건 충족 시 컨트랙트가 즉시 처리</p>
+        </article>
+        <article class="why-card">
+          <span class="why-stage">명확성</span>
+          <p class="why-before">보험사만 원장을 보유해 고객은 처리 현황을 알기 어려움</p>
+          <p class="why-after">청약~지급 전 이력이 온체인에 공개돼 고객·보험사가 같은 기록을 조회</p>
+        </article>
+        <article class="why-card">
+          <span class="why-stage">일부 즉시 지급</span>
+          <p class="why-before">소액·정형화된 청구도 전체 청구와 동일한 심사 대기열에 묶임</p>
+          <p class="why-after">담보 조건이 명확한 청구는 사람 개입 없이 스마트컨트랙트가 즉시 (부분)지급</p>
+        </article>
+        <article class="why-card">
+          <span class="why-stage">준비금 송금·인출</span>
+          <p class="why-before">은행 송금 지연, 준비금 부족 여부를 지급 실패 후에야 확인</p>
+          <p class="why-after">스테이블코인으로 준비금 즉시 입출금 + 부족 전환 시점을 워처가 사전 경보</p>
+        </article>
+      </div>
+    </section>
+
+  </div>
+</div>
