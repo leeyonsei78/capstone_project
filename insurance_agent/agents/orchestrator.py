@@ -1503,8 +1503,10 @@ SYSTEM_PROMPT = """당신은 친절하고 전문적인 보험 상담 AI 어시�
 - 신용점수 조회 전 안내: "Chrome에서 나이스지키미(credit.co.kr) 또는 올크레딧(allcredit.co.kr)에 로그인해두세요"
 - 이미 가입한 블록체인 덴탈보험의 실시간 계약/납입/청구/대출/만기 조회 → get_blockchain_dental_status
   - "내 블록체인 보험 상태 알려줘", "보험금 지급됐어?", "이번 달 보험료 냈나?", "만기 언제야?" 같은 질문에 사용
-  - wallet_address를 대화에서 모르면 빈 값으로 호출해보고, 도구가 지갑 주소가 없다는 오류를 반환하면
-    사용자에게 MetaMask 지갑 주소(0x로 시작)를 물어보거나 화면의 지갑 주소 등록창을 안내하세요
+  - 이런 질문이면 **먼저 사용자에게 지갑 주소를 되묻지 말고 곧바로 이 도구부터 호출**하세요.
+    이 세션에 등록된 지갑 주소가 있다면(위 "등록된 블록체인 지갑" 섹션 참고) 시스템이 자동으로
+    적용합니다. 등록된 게 없어서 도구가 "지갑 주소가 없다"는 오류를 반환하면, 그때 사용자에게
+    MetaMask 지갑 주소(0x로 시작)를 물어보거나 화면의 지갑 주소 등록창을 안내하세요
   - 일반 상품 추천/비교에는 이 도구를 사용하지 마세요 (실제 가입한 계약 조회 전용)
 
 ### 최신 뉴스 안내
@@ -1570,8 +1572,8 @@ SYSTEM_PROMPT = """당신은 친절하고 전문적인 보험 상담 AI 어시�
 - 덴탈보험은 "치과보험"으로도 부를 수 있음"""
 
 
-def _build_system_prompt() -> str:
-    """현재 날짜를 포함한 시스템 프롬프트 반환"""
+def _build_system_prompt(wallet_address: str | None = None) -> str:
+    """현재 날짜(+ 등록된 지갑 주소가 있다면 그것도)를 포함한 시스템 프롬프트 반환"""
     from datetime import date
     today = date.today().strftime("%Y년 %m월 %d일")
     date_header = f"""## 현재 날짜
@@ -1582,6 +1584,14 @@ def _build_system_prompt() -> str:
 - 검색 결과 중 **2024년 이전** 기사·자료는 참고만 하고, 현재 기준으로 업데이트된 내용으로 재해석하세요
 - "~예정입니다", "~될 것입니다" 등 미래형 표현이 이미 지난 날짜를 기준으로 작성된 경우 현재 완료 시제로 정정하세요
 - 보험료·공시이율은 매년 변경되므로, 2024년 이전 수치를 그대로 인용하지 마세요
+
+"""
+    if wallet_address:
+        date_header += f"""## 등록된 블록체인 지갑
+이 세션에는 이미 지갑 주소({wallet_address})가 등록되어 있습니다.
+블록체인 덴탈보험 관련 질문("보험금 지급됐어?", "이번 달 보험료 냈나?", "만기 언제야?" 등)에는
+사용자에게 지갑 주소를 다시 묻지 말고, get_blockchain_dental_status를 wallet_address 인자
+없이(또는 빈 값으로) 즉시 호출하세요 — 시스템이 이 등록된 주소를 자동으로 사용합니다.
 
 """
     return date_header + SYSTEM_PROMPT
@@ -1774,7 +1784,7 @@ class InsuranceChatbot:
 
         max_iterations = 10
         for _ in range(max_iterations):
-            messages = [{"role": "system", "content": _build_system_prompt()}]
+            messages = [{"role": "system", "content": _build_system_prompt(self.wallet_address)}]
             if pre_context:
                 messages.append({
                     "role": "system",
@@ -1865,7 +1875,7 @@ class InsuranceChatbot:
             stream = self.client.chat.completions.create(
                 model="gpt-4o",
                 max_tokens=4096,
-                messages=[{"role": "system", "content": _build_system_prompt()}] + self.conversation_history,
+                messages=[{"role": "system", "content": _build_system_prompt(self.wallet_address)}] + self.conversation_history,
                 tools=TOOLS,
                 stream=True,
             )

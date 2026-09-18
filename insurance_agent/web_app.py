@@ -12,15 +12,22 @@ import os
 import re
 import json
 import uuid
+import hmac
+import hashlib
+import time
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dotenv import load_dotenv
 load_dotenv()
 
+import requests
 from flask import Flask, request, jsonify, render_template_string, Response, stream_with_context
 
 app = Flask(__name__)
+
+SLACK_SIGNING_SECRET = os.environ.get('SLACK_SIGNING_SECRET', '')
 
 # ── 세션 저장소 ───────────────────────────────────────────
 sessions = {}  # session_id -> {chatbot, context, mode}
@@ -5863,6 +5870,130 @@ def set_blockchain_wallet():
         sessions[sid]['chatbot'].wallet_address = wallet_address or None
 
     return jsonify({'status': 'ok', 'wallet_address': wallet_address or None})
+
+
+# ── Slack 슬래시 커맨드 (양방향 조회) ─────────────────────────
+# scripts/slack-notifier.js 등 기존 Slack 연동은 "블록체인 → Slack"
+# 단방향 이벤트 알림뿐이었다. 이건 반대 방향 — Slack에서 관리자가
+# 슬래시 커맨드로 특정 지갑의 실시간 온체인 현황을 조회하는 기능.
+#
+# Slack App 설정 (App 생성 후):
+#   Slash Commands → Create New Command
+#     Command: 원하는 이름 (예: /덴탈조회)
+#     Request URL: http://<공인 주소>:5000/api/slack/commands
+#       (로컬 실행만 하는 경우 ngrok 등으로 외부 터널링 필요 — Slack이
+#        직접 이 URL로 POST 요청을 보내야 하므로 localhost만으로는 불가)
+#   Basic Information → Signing Secret 값을 .env의 SLACK_SIGNING_SECRET로 설정
+#
+# 사용법 (Slack에서): /덴탈조회 0x지갑주소
+
+def _verify_slack_signature(req) -> bool:
+    """Slack 요청 서명 검증 (https://api.slack.com/authentication/verifying-requests-from-slack).
+    SLACK_SIGNING_SECRET 미설정 시 위조 요청을 걸러낼 수 없으므로 항상 거부한다."""
+    if not SLACK_SIGNING_SECRET:
+        return False
+    timestamp = req.headers.get('X-Slack-Request-Timestamp', '')
+    signature = req.headers.get('X-Slack-Signature', '')
+    if not timestamp or not signature:
+        return False
+    try:
+        if abs(time.time() - int(timestamp)) > 60 * 5:
+            return False  # 재전송(replay) 공격 방지
+    except ValueError:
+        return False
+    basestring = f"v0:{timestamp}:{req.get_data(as_text=True)}".encode('utf-8')
+    computed = 'v0=' + hmac.new(SLACK_SIGNING_SECRET.encode('utf-8'), basestring, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(computed, signature)
+
+
+def _format_slack_query_result(data: dict) -> str:
+    """get_blockchain_dental_status()의 JSON 결과를 Slack mrkdwn 메시지로 가공."""
+    if not data.get('ok'):
+        return f"⚠️ 조회 실패: {data.get('error', '알 수 없는 오류')}"
+
+    wallet = data.get('wallet', '-')
+    lines = [f"⛓️ *블록체인 덴탈보험 조회 결과* (`{wallet}`)", f"_조회 시각: {data.get('queriedAt', '-')}_", ""]
+
+    policies = data.get('policies') or []
+    if not policies:
+        lines.append("등록된 보험증권이 없습니다.")
+    for p in policies:
+        status = "✅ 유효" if p.get('active') else "🛑 해지"
+        lines.append(f"*[{p.get('currency')}] 증권 #{p.get('policyId')}* — {p.get('patientName')} ({status})")
+        lines.append(
+            f"  월보험료: {p.get('monthlyPremium')} | 보장한도: {p.get('coverageLimit')} | "
+            f"누적납입: {p.get('totalPaid')}"
+        )
+        if p.get('isPremiumDue'):
+            lines.append(f"  ⚠️ 보험료 납입기한 도래 (다음 납입일: {p.get('nextDueDate')})")
+        if p.get('isMatured'):
+            lines.append(f"  💎 만기환급 대상 (만기일: {p.get('maturityDate')})")
+        elif p.get('daysUntilMaturity'):
+            lines.append(f"  만기까지 {p.get('daysUntilMaturity')}일 (만기일: {p.get('maturityDate')})")
+        loan = p.get('activeLoan')
+        if loan:
+            lines.append(f"  💵 약관대출 진행중: {loan.get('loanAmount')} ({loan.get('borrowedAt')})")
+
+    claims = data.get('claims') or []
+    if claims:
+        lines.append("")
+        lines.append("*청구 내역*")
+        for c in claims:
+            lines.append(
+                f"  [{c.get('currency')}] 청구 #{c.get('claimId')} (증권 #{c.get('policyId')}) — "
+                f"{c.get('status')} — {c.get('amount')} ({c.get('treatmentCode')})"
+            )
+
+    return "\n".join(lines)
+
+
+def _slack_query_and_respond(wallet_address: str, response_url: str):
+    """조회는 수 초 걸릴 수 있어(node subprocess 기동) 슬래시 커맨드의 3초 응답
+    제한을 피하기 위해 백그라운드 스레드에서 실행 후 response_url로 결과를 보낸다."""
+    from tools.blockchain_tool import get_blockchain_dental_status
+    try:
+        raw = get_blockchain_dental_status(wallet_address)
+        data = json.loads(raw)
+        message = _format_slack_query_result(data)
+    except Exception as e:
+        message = f"⚠️ 조회 중 오류가 발생했습니다: {e}"
+
+    if not response_url:
+        return
+    try:
+        requests.post(response_url, json={'response_type': 'ephemeral', 'text': message}, timeout=10)
+    except Exception as e:
+        app.logger.error(f"Slack response_url 전송 실패: {e}")
+
+
+@app.route('/api/slack/commands', methods=['POST'])
+def slack_slash_command():
+    """Slack 슬래시 커맨드로 블록체인 덴탈보험 실시간 현황을 조회한다."""
+    if not _verify_slack_signature(request):
+        return jsonify({'response_type': 'ephemeral', 'text': '⚠️ 요청 서명을 확인할 수 없습니다.'}), 401
+
+    text = (request.form.get('text') or '').strip()
+    response_url = request.form.get('response_url', '')
+
+    if not text:
+        return jsonify({
+            'response_type': 'ephemeral',
+            'text': '사용법: `/명령어 0x지갑주소` — 조회할 MetaMask 지갑 주소를 입력해 주세요.',
+        })
+
+    wallet_address = text.split()[0]
+    if not re.match(r'^0x[0-9a-fA-F]{40}$', wallet_address):
+        return jsonify({
+            'response_type': 'ephemeral',
+            'text': '⚠️ 올바른 지갑 주소 형식이 아닙니다 (0x로 시작하는 42자).',
+        })
+
+    threading.Thread(target=_slack_query_and_respond, args=(wallet_address, response_url), daemon=True).start()
+
+    return jsonify({
+        'response_type': 'ephemeral',
+        'text': f'🔍 `{wallet_address}` 조회 중입니다...',
+    })
 
 
 # ── DIOBIO 카카오 채널 설정 ────────────────────────────────────
