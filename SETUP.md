@@ -27,6 +27,7 @@
 | **Google Chrome** | 관리자 화면용 브라우저 | https://www.google.com/chrome/ |
 | **Microsoft Edge** | 고객 화면용 브라우저 | Windows에 기본 설치되어 있음 |
 | **MetaMask 확장 프로그램** | 블록체인 지갑 (Chrome용, Edge용 **각각** 설치) | https://metamask.io/download/ |
+| **Docker Desktop** (선택) | 증권/청구 알림 이메일 발송 기능용 로컬 SMTP 캐처(Mailpit) 실행 — 없어도 나머지 기능은 전부 정상 동작, 이메일만 안 나감 | https://www.docker.com/products/docker-desktop/ |
 
 설치 확인 (PowerShell 또는 cmd에서):
 ```bat
@@ -148,11 +149,15 @@ start.bat
 2. 챗봇에서 덴탈/치아/블록체인 관련 상담을 요청하면 라이나생명 블록체인치아보험이
    포함된 추천 표가 나오고, **⛓️ 블록체인 가입 시작 →** 버튼이 보입니다.
 3. 버튼을 누르면 아래가 순서대로 자동 실행됩니다.
-   - Hardhat 로컬 노드 / 스마트 컨트랙트 배포 / 만기환급 워처 / 오라클 서비스 /
-     자동납부 스케줄러 / 프론트엔드 UI 서버
+   - Mailpit(Docker, 이메일 발송용) / Hardhat 로컬 노드 / 스마트 컨트랙트 배포 /
+     만기환급 워처 / 오라클 서비스 / 자동납부 스케줄러 / 증권 발급·이메일 발송
+     서비스 / 프론트엔드 UI 서버
    - 완료되면 **Chrome(관리자)**, **Edge(고객)** 창이 자동으로 열립니다
      (`http://localhost:3000`).
 4. 각 창에서 MetaMask 연결 → 4-2에서 가져온 계정으로 서명하며 테스트를 진행합니다.
+5. 청약(가입 신청) 화면에서 이메일을 입력해두면, 증권이 발급되거나 청구가
+   처리될 때마다 자동으로 메일이 발송됩니다 — 실제 이메일 계정 없이
+   `http://localhost:8025` (Mailpit 웹 UI)에서 바로 확인할 수 있습니다.
 
 ---
 
@@ -165,3 +170,4 @@ start.bat
 | MetaMask가 "네트워크 연결 안 됨"이라고 뜸 | 블록체인 가입 버튼을 눌러 Hardhat 노드를 먼저 켜야 함 (자동 실행) |
 | MetaMask 트랜잭션이 계속 실패(nonce 오류) | MetaMask → 설정 → 고급 → "계정 활동 재설정" (노드를 재시작한 경우 필요) |
 | 포트 충돌 (5000/3000/8545 사용 중) | 해당 포트를 쓰는 다른 프로그램 종료 후 재시도 |
+| 증권 발급/청구 처리 이메일이 안 옴 | Docker Desktop이 켜져 있는지 확인 (`docker compose up -d mailpit`을 `blockchain-dental` 폴더에서 수동 실행해도 됨). 청약 시 이메일 칸을 비워뒀다면 애초에 발송 대상이 없는 것이 정상입니다 |

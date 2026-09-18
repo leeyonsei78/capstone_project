@@ -61,6 +61,14 @@ async function main() {
   const maturityIn45Min = now + 45 * 60;
   const refundRate = 70;
 
+  // 데모 만기(30~45분 후)가 기본 납입주기(30일)보다 훨씬 빨라 컨트랙트 기본값 그대로면
+  // 만기 전까지 보험료가 단 한 번도 자동 징수되지 못해 totalPaid가 항상 0으로 남고,
+  // 수동 만기환급(processMaturityRefund)이 "No premiums paid"로 항상 revert됨
+  // (2026-09-18 발견). 아래 두 증권은 납입주기를 PREMIUM_INTERVAL_TEST(5분)로 줄이고
+  // 고객 계좌가 보험사에 자동이체를 승인(approve)하도록 해, premium-scheduler.js가
+  // 만기 전에 실제로 몇 차례 보험료를 징수할 수 있게 함.
+  const testInterval = await insurance.PREMIUM_INTERVAL_TEST();
+
   // 계정 #1 - 김덴탈 (월 50 USDC)
   if (accounts.length > 1) {
     tx = await insurance.createPolicy(
@@ -70,7 +78,9 @@ async function main() {
     );
     await tx.wait();
     await usdc.connect(accounts[1]).faucet(ethers.parseUnits("1000", 6));
-    console.log(`  ✅ USDC 증권 #1: 김덴탈 | 월 $50 | 한도 $1,000 | 1,000 USDC 지급`);
+    await usdc.connect(accounts[1]).approve(insuranceAddress, ethers.MaxUint256);
+    await insurance.setPremiumInterval(1, testInterval);
+    console.log(`  ✅ USDC 증권 #1: 김덴탈 | 월 $50 | 한도 $1,000 | 1,000 USDC 지급 | 납입주기 5분(테스트)`);
   }
 
   // 계정 #2 - 이치과 (월 80 USDC)
@@ -82,7 +92,9 @@ async function main() {
     );
     await tx.wait();
     await usdc.connect(accounts[2]).faucet(ethers.parseUnits("1000", 6));
-    console.log(`  ✅ USDC 증권 #2: 이치과 | 월 $80 | 한도 $2,000 | 1,000 USDC 지급`);
+    await usdc.connect(accounts[2]).approve(insuranceAddress, ethers.MaxUint256);
+    await insurance.setPremiumInterval(2, testInterval);
+    console.log(`  ✅ USDC 증권 #2: 이치과 | 월 $80 | 한도 $2,000 | 1,000 USDC 지급 | 납입주기 5분(테스트)`);
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -126,6 +138,10 @@ async function main() {
   const krwMaturity30 = now + 30 * 60;
   const krwMaturity45 = now + 45 * 60;
 
+  // USDC와 동일한 이유로 KRW 쪽도 납입주기를 5분(테스트)으로 줄이고 approve 필요
+  // (위 "데모 만기가 기본 납입주기보다 빠름" 주석 참고).
+  const testIntervalKrw = await insuranceKrw.PREMIUM_INTERVAL_TEST();
+
   // 계정 #1 - 김덴탈 (월 70,000원)
   if (accounts.length > 1) {
     tx = await insuranceKrw.createPolicy(
@@ -136,7 +152,9 @@ async function main() {
     );
     await tx.wait();
     await krw.connect(accounts[1]).faucet(BigInt("1000000")); // 100만원
-    console.log(`  ✅ KRW 증권 #1: 김덴탈 | 월 ₩70,000 | 한도 ₩1,400,000 | 100만원 지급`);
+    await krw.connect(accounts[1]).approve(insuranceKrwAddress, ethers.MaxUint256);
+    await insuranceKrw.setPremiumInterval(1, testIntervalKrw);
+    console.log(`  ✅ KRW 증권 #1: 김덴탈 | 월 ₩70,000 | 한도 ₩1,400,000 | 100만원 지급 | 납입주기 5분(테스트)`);
   }
 
   // 계정 #2 - 이치과 (월 112,000원)
@@ -149,7 +167,9 @@ async function main() {
     );
     await tx.wait();
     await krw.connect(accounts[2]).faucet(BigInt("1000000")); // 100만원
-    console.log(`  ✅ KRW 증권 #2: 이치과 | 월 ₩112,000 | 한도 ₩2,800,000 | 100만원 지급`);
+    await krw.connect(accounts[2]).approve(insuranceKrwAddress, ethers.MaxUint256);
+    await insuranceKrw.setPremiumInterval(2, testIntervalKrw);
+    console.log(`  ✅ KRW 증권 #2: 이치과 | 월 ₩112,000 | 한도 ₩2,800,000 | 100만원 지급 | 납입주기 5분(테스트)`);
   }
 
   // ── 샘플 청약 신청 (USDC 계약 기준) ─────────────────────────

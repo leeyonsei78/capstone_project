@@ -141,15 +141,16 @@ let eventListenersAttached = false;
 let currencyMode = 'USDC';   // 'USDC' | 'KRW'
 let configCache  = null;     // config.json 캐시
 
-// ── 알림 이메일 발송 (n8n 연동, 선택) ─────────────────────────
-// 로컬 Docker로 띄운 n8n의 Webhook 노드 URL을 여기에 채워 넣으면, 증권
-// 발급/청구 승인·거절·지급 시점에 해당 지갑에 연결된 이메일로 알림을
-// 보낼 수 있음. 비워두면(기본값) 아무 일도 하지 않고 조용히 건너뜀 —
-// 다른 선택 기능들과 동일하게 "없으면 스킵" 원칙. 모든 알림 종류가
-// 이 웹훅 하나로 들어가고, payload의 "type" 필드(policy_issued/
-// claim_approved/claim_rejected/claim_paid)로 n8n 쪽에서 분기하면 됨.
-// 예: "http://localhost:5678/webhook/notify"
-const N8N_NOTIFY_WEBHOOK_URL = "";
+// ── 알림 이메일 발송 (scripts/email-service.js 연동) ─────────────
+// 증권 발급/청구 승인·거절·지급 시점에, 해당 지갑에 등록된 이메일이 있으면
+// scripts/email-service.js의 웹훅으로 요청을 보낸다 — 그 서비스가 로컬
+// Docker로 띄운 Mailpit(../docker-compose.yml)을 통해 실제 SMTP 메일을
+// 발송한다 (발송된 메일은 http://localhost:8025 에서 확인). 이메일 서비스가
+// 꺼져 있으면(포트 미응답) fetch가 실패할 뿐 — 다른 선택 기능들과 동일하게
+// "없으면 조용히 건너뜀" 원칙. 모든 알림 종류가 이 웹훅 하나로 들어가고,
+// payload의 "type" 필드(policy_issued/claim_approved/claim_rejected/
+// claim_paid)로 이메일 서비스 쪽에서 분기한다.
+const EMAIL_NOTIFY_WEBHOOK_URL = "http://localhost:5679/notify";
 
 function certEmailStorageKey(address) {
   return `certEmail:${(address || "").toLowerCase()}`;
@@ -172,24 +173,25 @@ function isValidEmail(email) {
 }
 
 // 증권 발급(PolicyCreated) 시점에 호출 — 이 지갑 주소로 등록된 이메일이 있으면
-// n8n Webhook으로 {email, policyId, patientName, currency, certFileName, certUrl}을 push.
+// email-service.js 웹훅으로 {email, policyId, patientName, currency, certFileName, certUrl}을 push.
 // certificate-service.js가 만드는 파일명 규칙(scripts/certificate-service.js의
-// certFileName)과 동일하게 URL을 미리 구성해서 넘긴다 — n8n 쪽에서 몇 초 대기한
-// 뒤 그 링크로 발송하면 PDF 생성 타이밍과 자연스럽게 맞음.
+// certFileName)과 동일하게 URL을 미리 구성해서 넘긴다 — email-service.js가 PDF
+// 파일이 생길 때까지 잠깐 재시도 대기한 뒤 첨부해서 발송하므로 PDF 생성 타이밍과
+// 자연스럽게 맞는다 (scripts/email-service.js의 waitForCertFile 참고).
 // certUrl은 location.origin(지금 접속 중인 프론트엔드 주소, 예: http://localhost:3000)
 // 기준 완전한 다운로드 링크 — PDF는 certificate-service.js가 frontend/certificates/
 // 아래에 저장하고, 프론트엔드 서버(npx serve)가 그 디렉터리를 그대로 정적 서빙하므로
-// "/certificates/<파일명>" 경로로 바로 접근 가능하다. n8n이 base URL을 따로
-// 하드코딩할 필요 없이 이 값을 그대로 이메일 링크로 쓰면 된다.
-async function notifyN8nCertReady(policyId, patientAddress, patientName) {
-  if (!N8N_NOTIFY_WEBHOOK_URL) return;
+// "/certificates/<파일명>" 경로로 바로 접근 가능하다. email-service.js가 base URL을
+// 따로 하드코딩할 필요 없이 이 값을 그대로 이메일 링크로 쓰면 된다.
+async function notifyCertReady(policyId, patientAddress, patientName) {
+  if (!EMAIL_NOTIFY_WEBHOOK_URL) return;
   const email = lookupCertEmail(patientAddress);
   if (!email) return;
 
   const certFileName = `${currencyMode.toLowerCase()}-policy-${policyId}.pdf`;
   const certUrl = `${location.origin}/certificates/${certFileName}`;
   try {
-    await fetch(N8N_NOTIFY_WEBHOOK_URL, {
+    await fetch(EMAIL_NOTIFY_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -202,17 +204,17 @@ async function notifyN8nCertReady(policyId, patientAddress, patientName) {
         certUrl,
       }),
     });
-    addLog("info", `📧 n8n으로 증권 발급 이메일 발송 요청 전송 (증권 #${policyId} → ${email})`, `certUrl: ${certUrl}`);
+    addLog("info", `📧 증권 발급 이메일 발송 요청 전송 (증권 #${policyId} → ${email})`, `certUrl: ${certUrl}`);
   } catch (e) {
-    addLog("error", "n8n 이메일 발송 요청 실패", e.message);
+    addLog("error", "증권 발급 이메일 발송 요청 실패 (email-service.js가 켜져 있는지 확인하세요)", e.message);
   }
 }
 
 // 청구 승인/거절/지급 이벤트 시점에 호출 — 증권 발급 이메일과 같은 지갑주소
-// 기준으로 등록된 이메일이 있으면 같은 n8n 웹훅으로 알림 요청을 보낸다.
+// 기준으로 등록된 이메일이 있으면 같은 웹훅으로 알림 요청을 보낸다.
 // type: "claim_approved" | "claim_rejected" | "claim_paid"
-async function notifyN8nClaimUpdate(type, claimId, extra = {}) {
-  if (!N8N_NOTIFY_WEBHOOK_URL) return;
+async function notifyClaimUpdate(type, claimId, extra = {}) {
+  if (!EMAIL_NOTIFY_WEBHOOK_URL) return;
   if (!insCtx) return;
   try {
     const claim = await insCtx.getClaim(claimId);
@@ -220,7 +222,7 @@ async function notifyN8nClaimUpdate(type, claimId, extra = {}) {
     if (!email) return;
 
     const policy = await insCtx.getPolicy(claim.policyId).catch(() => null);
-    await fetch(N8N_NOTIFY_WEBHOOK_URL, {
+    await fetch(EMAIL_NOTIFY_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -236,9 +238,9 @@ async function notifyN8nClaimUpdate(type, claimId, extra = {}) {
         ...extra,
       }),
     });
-    addLog("info", `📧 n8n으로 청구 처리 결과 이메일 발송 요청 전송 (청구 #${claimId} → ${email})`, `type: ${type}`);
+    addLog("info", `📧 청구 처리 결과 이메일 발송 요청 전송 (청구 #${claimId} → ${email})`, `type: ${type}`);
   } catch (e) {
-    addLog("error", "n8n 청구 알림 발송 요청 실패", e.message);
+    addLog("error", "청구 처리 결과 이메일 발송 요청 실패 (email-service.js가 켜져 있는지 확인하세요)", e.message);
   }
 }
 
@@ -1226,10 +1228,10 @@ function attachEventListeners() {
       `피보험자 : ${patient}\n월보험료 : ${fmtUsdc(premium)}\n보장한도 : ${fmtUsdc(limit)}\n블록     : ${event.log.blockNumber}`,
       event.log.transactionHash);
     refreshAll();
-    // 이 지갑(patient) 주소로 등록해둔 이메일이 있으면 n8n에 발송 요청 —
-    // certificate-service.js가 PDF를 만드는 데 몇 초 걸리므로, n8n 워크플로우
-    // 쪽에서 짧게 대기한 뒤 다운로드 링크를 이메일로 보내는 구조를 전제로 함.
-    notifyN8nCertReady(policyId, patient, name);
+    // 이 지갑(patient) 주소로 등록해둔 이메일이 있으면 email-service.js에 발송 요청 —
+    // certificate-service.js가 PDF를 만드는 데 몇 초 걸리므로, email-service.js
+    // 쪽에서 짧게 대기한 뒤 PDF를 첨부해 이메일로 보내는 구조를 전제로 함.
+    notifyCertReady(policyId, patient, name);
   });
   insCtx.on("PremiumPaid", (policyId, patient, amount, totalPaid, ts, event) => {
     addLog("event", `💳 보험료 납입 이벤트: 증권 #${policyId}`,
@@ -1248,21 +1250,21 @@ function attachEventListeners() {
       `증권 ID  : #${policyId}\n승인금액 : ${fmtUsdc(amount)}`,
       event.log.transactionHash);
     refreshAll();
-    notifyN8nClaimUpdate("claim_approved", claimId);
+    notifyClaimUpdate("claim_approved", claimId);
   });
   insCtx.on("ClaimRejected", (claimId, policyId, reason, ts, event) => {
     addLog("event", `❌ 청구 거절 이벤트: 청구 #${claimId}`,
       `증권 ID  : #${policyId}\n거절사유 : ${reason}`,
       event.log.transactionHash);
     refreshAll();
-    notifyN8nClaimUpdate("claim_rejected", claimId, { reason });
+    notifyClaimUpdate("claim_rejected", claimId, { reason });
   });
   insCtx.on("ClaimPaid", (claimId, policyId, patient, amount, ts, event) => {
     addLog("event", `💰 보험금 지급 이벤트: 청구 #${claimId}`,
       `수령자   : ${patient}\n지급금액 : ${fmtUsdc(amount)}`,
       event.log.transactionHash);
     refreshAll();
-    notifyN8nClaimUpdate("claim_paid", claimId);
+    notifyClaimUpdate("claim_paid", claimId);
   });
   insCtx.on("FundsDeposited", (depositor, amount, ts, event) => {
     addLog("event", `🏦 준비금 입금 이벤트: ${fmtUsdc(amount)} USDC`,

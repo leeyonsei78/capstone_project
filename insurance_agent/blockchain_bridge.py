@@ -19,8 +19,9 @@ CONFIG_JSON = os.path.join(FRONTEND_DIR, "config.json")
 
 HARDHAT_PORT = 8545
 FRONTEND_PORT = 3000
+MAILPIT_SMTP_PORT = 1025
 
-# run.bat의 [4/10]~[10/10]과 동일한 백그라운드 서비스 목록.
+# run.bat의 [5/12]~[12/12]과 동일한 백그라운드 서비스 목록.
 SERVICE_PROCESSES = [
     ("4-Maturity Watcher", "scripts/maturity-watcher.js"),
     ("5-Oracle Service", "scripts/oracle-service.js"),
@@ -29,6 +30,7 @@ SERVICE_PROCESSES = [
     ("8-Application Review", "scripts/application-review-service.js"),
     ("9-Certificate Service", "scripts/certificate-service.js"),
     ("10-Reserve Monitor", "scripts/reserve-monitor.js"),
+    ("11-Email Service", "scripts/email-service.js"),
 ]
 
 _lock = threading.Lock()
@@ -119,6 +121,24 @@ def ensure_blockchain_stack():
         return False
 
     try:
+        # 이메일 발송용 Mailpit(로컬 SMTP 캐처, docker-compose.yml)은 Docker가 없거나
+        # 꺼져 있어도 전체 가입 흐름을 막으면 안 되는 선택 기능 — 실패해도 계속 진행.
+        if not _is_port_open(MAILPIT_SMTP_PORT):
+            _set_status("starting_mailpit", "이메일 발송용 Mailpit(Docker)을 시작하는 중입니다...")
+            try:
+                subprocess.run(
+                    "docker compose up -d mailpit",
+                    cwd=BLOCKCHAIN_DIR,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    errors="replace",
+                )
+                _wait_for_port(MAILPIT_SMTP_PORT, timeout=20)
+            except Exception:
+                pass  # Docker 미설치/미실행 — 증권 발급 이메일만 안 갈 뿐, 나머지는 정상 진행
+
         node_already_running = _is_port_open(HARDHAT_PORT)
 
         if not node_already_running:
@@ -195,7 +215,7 @@ def ensure_blockchain_stack():
 
 
 _IN_PROGRESS_STATES = {
-    "starting_node", "deploying", "starting_services", "starting_frontend", "opening_windows",
+    "starting_mailpit", "starting_node", "deploying", "starting_services", "starting_frontend", "opening_windows",
 }
 
 

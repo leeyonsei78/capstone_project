@@ -3351,6 +3351,7 @@ function addLinksToTables(htmlStr) {
 
 // ── 블록체인 덴탈보험 가입 자동화 ───────────────────────────────
 const BC_STATUS_LABEL = {
+  starting_mailpit:    '📧 이메일 발송 서비스(Mailpit)를 시작하는 중...',
   starting_node:      '⛓️ 블록체인 노드를 시작하는 중...',
   deploying:           '📜 스마트 컨트랙트를 배포하는 중...',
   starting_services:   '🛰️ 오라클·자동납부·만기환급 서비스를 시작하는 중...',

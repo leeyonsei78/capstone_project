@@ -89,6 +89,25 @@ async function main() {
         const p = await contract.getPolicy(id);
         const loan = await contract.getPolicyLoan(id).catch(() => null);
         const remainingSec = Number(p.maturityDate) - nowTs;
+        // 프론트엔드(app.js)의 만기 카운트다운과 동일한 방식(Math.floor)으로 계산한
+        // 사람이 읽는 문자열. 예전엔 daysUntilMaturity를 Math.ceil(remainingSec/86400)로만
+        // 줘서, 만기가 단 몇 분 뒤(=오늘)인데도 값이 1이 되어 챗봇이 "내일 만기"라고
+        // 잘못 답하는 버그가 있었음 (2026-09-18 발견) — GPT가 초 단위 숫자를 직접
+        // day-단위로 환산하며 날짜 계산을 틀리지 않도록, 아예 "오늘/며칠 후" 문자열을
+        // 미리 계산해서 넘긴다.
+        let timeUntilMaturity;
+        if (p.maturityPaid) {
+          timeUntilMaturity = "지급완료";
+        } else if (remainingSec <= 0) {
+          timeUntilMaturity = "만기 도달(오늘 이전)";
+        } else {
+          const days  = Math.floor(remainingSec / 86400);
+          const hours = Math.floor((remainingSec % 86400) / 3600);
+          const mins  = Math.floor((remainingSec % 3600) / 60);
+          timeUntilMaturity = days > 0 ? `${days}일 ${hours}시간 후`
+            : hours > 0 ? `오늘, ${hours}시간 ${mins}분 후`
+            : `오늘, ${mins}분 후`;
+        }
         policies.push({
           currency:          ccy,
           policyId:          Number(id),
@@ -104,7 +123,8 @@ async function main() {
           maturityDate:      tsToDate(p.maturityDate),
           maturityPaid:      p.maturityPaid,
           isMatured:         !p.maturityPaid && p.active && p.totalPaid > 0n && nowTs >= Number(p.maturityDate),
-          daysUntilMaturity: remainingSec > 0 ? Math.ceil(remainingSec / 86400) : 0,
+          timeUntilMaturity,
+          daysUntilMaturity: remainingSec > 0 ? Math.floor(remainingSec / 86400) : 0,
           activeLoan: (loan && loan.active) ? {
             loanAmount: fmtAmount(loan.loanAmount, decimals),
             borrowedAt: tsToDate(loan.borrowedAt),

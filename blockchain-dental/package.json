@@ -15,6 +15,7 @@
     "applications": "node scripts/application-review-service.js",
     "certificates": "node scripts/certificate-service.js",
     "reserve-monitor": "node scripts/reserve-monitor.js",
+    "email": "node scripts/email-service.js",
     "check-secrets": "node scripts/check-secrets.js",
     "prepare": "node scripts/install-git-hooks.js"
   },
@@ -28,6 +29,7 @@
   "dependencies": {
     "@openzeppelin/contracts": "^5.0.0",
     "dotenv": "^16.0.0",
+    "nodemailer": "^6.9.16",
     "openai": "^7.15.0",
     "pdfkit": "^0.20.2"
   }

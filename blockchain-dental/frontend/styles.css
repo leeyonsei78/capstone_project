@@ -405,6 +405,7 @@ td {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
+  white-space: nowrap;
 }
 
 tbody tr:last-child td { border-bottom: none; }

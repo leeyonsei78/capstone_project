@@ -1508,6 +1508,10 @@ SYSTEM_PROMPT = """당신은 친절하고 전문적인 보험 상담 AI 어시�
     적용합니다. 등록된 게 없어서 도구가 "지갑 주소가 없다"는 오류를 반환하면, 그때 사용자에게
     MetaMask 지갑 주소(0x로 시작)를 물어보거나 화면의 지갑 주소 등록창을 안내하세요
   - 일반 상품 추천/비교에는 이 도구를 사용하지 마세요 (실제 가입한 계약 조회 전용)
+  - 만기까지 남은 기간을 답할 때는 반드시 결과의 `timeUntilMaturity` 문자열을 그대로 사용하세요
+    (예: "오늘, 2분 후" → "오늘 만기입니다", "3일 4시간 후" → "3일 후"). `maturityDate`(날짜/시각
+    문자열)만 보고 "내일" 여부를 직접 계산하지 마세요 — 오늘 날짜와 시각 비교를 GPT가 직접
+    암산하면 "오늘인데 내일"이라고 틀리게 답하는 사고가 실제로 있었습니다.
 
 ### 최신 뉴스 안내
 뉴스 섹션은 시스템이 자동으로 추가합니다. 답변 본문에 뉴스를 직접 작성하지 마세요.
@@ -1621,6 +1625,24 @@ class InsuranceChatbot:
         # 블록체인 조회 도구(get_blockchain_dental_status)가 매번 물어보지 않고
         # 쓸 수 있도록, 한 번 등록된 지갑 주소를 세션(=이 챗봇 인스턴스) 동안 기억한다.
         self.wallet_address: str | None = None
+
+    @staticmethod
+    def _last_tool_call_names(history: list[dict]) -> set[str]:
+        """대화 히스토리에서 가장 최근에 실제로 호출된 도구 이름들을 찾는다.
+
+        GPT가 후속 질문에 이전 턴에서 이미 받아온 도구 결과(tool 메시지)를 재사용해
+        이번 턴엔 도구를 아예 호출하지 않고 바로 답하는 경우가 있다 — 예를 들어
+        "만기 언제야?"에 이미 get_blockchain_dental_status를 호출해 답한 다음,
+        곧바로 "이번 달 보험료 냈어?"라고 물으면 직전 도구 결과만으로 답할 수 있어
+        이번 턴엔 도구를 다시 부르지 않는다. 이때 도구 호출 여부만으로 뉴스 섹션을
+        붙일지 판단하면, 여전히 블록체인 조회 맥락인데 뉴스가 붙는 문제가 생긴다
+        (2026-09-18 발견). 이번 턴에 도구 호출이 전혀 없었을 때, 마지막으로 실제
+        호출됐던 도구가 무엇이었는지 참고하기 위한 헬퍼.
+        """
+        for msg in reversed(history):
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                return {tc["function"]["name"] for tc in msg["tool_calls"]}
+        return set()
 
     # ── 뉴스 섹션 (Python 레벨, 실제 URL 보장) ──────────────────
     @staticmethod
@@ -1784,6 +1806,7 @@ class InsuranceChatbot:
 
         # 블록체인 온체인 조회 응답에는 관련 뉴스 섹션을 붙이지 않는다
         used_blockchain_tool = False
+        any_tool_used = False
 
         max_iterations = 10
         for _ in range(max_iterations):
@@ -1816,19 +1839,29 @@ class InsuranceChatbot:
                     "role": "assistant",
                     "content": final_text,
                 })
+                # 이번 턴에 도구를 하나도 호출하지 않았다면(=이전 턴에서 받아온 블록체인
+                # 조회 결과를 그대로 재사용해 답했을 가능성), 직전에 실제로 호출됐던
+                # 도구가 get_blockchain_dental_status였는지로 판단한다.
+                if not any_tool_used and "get_blockchain_dental_status" in self._last_tool_call_names(self.conversation_history):
+                    used_blockchain_tool = True
                 # 항상 실제 URL 뉴스 섹션으로 교체 (GPT 생성 뉴스 섹션 제거 후 추가)
-                # 단, 블록체인 온체인 조회 결과에는 무관한 보험 뉴스를 붙이지 않는다
+                # 단, 블록체인 온체인 조회 결과에는 무관한 보험 뉴스를 붙이지 않는다.
+                # GPT가 지시를 어기고 이전 턴(대화 히스토리)의 뉴스 섹션을 그대로 베껴
+                # 답변에 포함시키는 경우가 있어, news가 빈 문자열이어도(=뉴스를 붙이지
+                # 않는 턴이어도) GPT가 직접 쓴 뉴스 섹션은 항상 제거한다 (2026-09-18 발견 —
+                # 블록체인 조회 응답에 관련 없는 보험 뉴스가 계속 붙던 버그).
                 news = "" if used_blockchain_tool else self._build_news_section(user_message)
+                if "📰 관련 최신 뉴스" in final_text:
+                    idx = final_text.index("📰 관련 최신 뉴스")
+                    cut = final_text.rfind("---", 0, idx)
+                    final_text = (final_text[:cut].rstrip() if cut >= 0 else final_text[:idx].rstrip())
                 if news:
-                    if "📰 관련 최신 뉴스" in final_text:
-                        idx = final_text.index("📰 관련 최신 뉴스")
-                        cut = final_text.rfind("---", 0, idx)
-                        final_text = (final_text[:cut].rstrip() if cut >= 0 else final_text[:idx].rstrip())
                     final_text += news
                 return final_text
 
             elif finish_reason == "tool_calls":
                 tool_calls = choice.message.tool_calls or []
+                any_tool_used = True
                 if any(tc.function.name == "get_blockchain_dental_status" for tc in tool_calls):
                     used_blockchain_tool = True
 
@@ -1878,6 +1911,7 @@ class InsuranceChatbot:
 
         # 블록체인 온체인 조회 응답에는 관련 뉴스 섹션을 붙이지 않는다
         used_blockchain_tool = False
+        any_tool_used = False
 
         max_iterations = 10
         for _ in range(max_iterations):
@@ -1920,6 +1954,11 @@ class InsuranceChatbot:
 
             if finish_reason == "stop":
                 self.conversation_history.append({"role": "assistant", "content": full_content})
+                # 이번 턴에 도구를 하나도 호출하지 않았다면(=이전 턴에서 받아온 블록체인
+                # 조회 결과를 그대로 재사용해 답했을 가능성), 직전에 실제로 호출됐던
+                # 도구가 get_blockchain_dental_status였는지로 판단한다.
+                if not any_tool_used and "get_blockchain_dental_status" in self._last_tool_call_names(self.conversation_history):
+                    used_blockchain_tool = True
                 # 항상 실제 URL 뉴스 섹션으로 교체 (GPT 생성 뉴스 섹션 제거 후 추가)
                 # 단, 블록체인 온체인 조회 결과에는 무관한 보험 뉴스를 붙이지 않는다
                 if used_blockchain_tool:
@@ -1928,17 +1967,21 @@ class InsuranceChatbot:
                     yield {"type": "tool_start", "tool": "_news_search"}
                     news = self._build_news_section(user_message)
                     yield {"type": "tool_done", "tool": "_news_search"}
+                # news가 빈 문자열이어도(블록체인 조회 턴) GPT가 대화 히스토리의 이전
+                # 뉴스 섹션을 베껴 직접 써버리는 경우가 있어, 제거 로직은 news 유무와
+                # 무관하게 항상 실행한다 (2026-09-18 발견).
+                if "📰 관련 최신 뉴스" in full_content:
+                    idx = full_content.index("📰 관련 최신 뉴스")
+                    cut = full_content.rfind("---", 0, idx)
+                    full_content = (full_content[:cut].rstrip() if cut >= 0 else full_content[:idx].rstrip())
                 if news:
-                    if "📰 관련 최신 뉴스" in full_content:
-                        idx = full_content.index("📰 관련 최신 뉴스")
-                        cut = full_content.rfind("---", 0, idx)
-                        full_content = (full_content[:cut].rstrip() if cut >= 0 else full_content[:idx].rstrip())
                     full_content += news
                 yield {"type": "done", "full_text": full_content}
                 return
 
             elif finish_reason == "tool_calls":
                 tool_calls_list = [tool_calls_acc[i] for i in sorted(tool_calls_acc.keys())]
+                any_tool_used = True
                 if any(tc["name"] == "get_blockchain_dental_status" for tc in tool_calls_list):
                     used_blockchain_tool = True
 

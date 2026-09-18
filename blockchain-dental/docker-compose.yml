@@ -1,0 +1,13 @@
+# Mailpit: 로컬 SMTP 캐처 + 웹 UI (증권 발급 이메일 발송 기능용).
+# 실제 이메일 계정/자격증명 없이 scripts/email-service.js가 보내는 메일을
+# 이 컨테이너가 그대로 받아 http://localhost:8025 웹 UI에서 확인할 수 있다.
+# 실제 외부 메일 서버로 바꾸려면 .env의 SMTP_HOST/SMTP_PORT만 바꾸면 되고,
+# 이 컨테이너는 띄우지 않아도 된다.
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: dental-insurance-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP (email-service.js가 여기로 발송)
+      - "8025:8025"   # 웹 UI (발송된 이메일 확인)
