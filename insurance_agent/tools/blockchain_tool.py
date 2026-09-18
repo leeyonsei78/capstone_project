@@ -9,12 +9,14 @@ blockchain-dental/scripts/query-policy.js(읽기 전용)를 subprocess로 호출
 
 from __future__ import annotations
 import json
+import re
 import socket
 import subprocess
 
 import blockchain_bridge
 
 QUERY_SCRIPT = "scripts/query-policy.js"
+_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 
 
 def _is_stack_running() -> bool:
@@ -40,6 +42,15 @@ def get_blockchain_dental_status(wallet_address: str = "") -> str:
             "error": (
                 "지갑 주소가 없습니다. 사용자에게 MetaMask 지갑 주소(0x로 시작하는 42자)를 "
                 "물어보거나, 화면의 '지갑 주소 등록' 입력창에 먼저 등록해달라고 안내하세요."
+            ),
+        }, ensure_ascii=False)
+
+    if not _ADDRESS_RE.match(wallet_address):
+        return json.dumps({
+            "ok": False,
+            "error": (
+                "유효한 지갑 주소 형식이 아닙니다 (0x로 시작하는 42자 주소여야 합니다). "
+                "개인키(Private Key)는 여기 입력하면 안 되며, 필요하지도 않습니다."
             ),
         }, ensure_ascii=False)
 
