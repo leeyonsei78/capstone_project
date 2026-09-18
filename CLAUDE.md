@@ -106,3 +106,16 @@ SETUP.md                 새 PC 1회성 설치 가이드 (프로그램, MetaMask
   이 톤을 유지할 것. 단, `경진대회_제안서_초안.md`·`CARELINK_README.md` 등 실제 과거
   경진대회 제출 이력을 기록한 문서는 의도적으로 그대로 둠 — 라이브 UI가 아니라
   아카이브 기록이라 고치면 역사 왜곡이 되므로, 이 문서들까지 손대려면 먼저 확인할 것.
+- **이 머신의 `npm`이 구버전(6.12.0)이라 node(v22)와 버전이 안 맞음**: 이 상태에서
+  `blockchain-dental`에서 `npm install`을 돌리면 `package.json`엔 실제 의존성 변경이
+  없어도 `package-lock.json`이 `lockfileVersion: 3 → 1`로 통째로 재작성되며 수백 줄
+  diff가 생김 (2026-09-18에 한 번 발생 → `git checkout`으로 원복함). `npm install`이
+  꼭 필요한 게 아니라면 실행하지 말고, 실행했다면 커밋 전에 `package-lock.json` diff를
+  반드시 확인할 것.
+- **Python→Node subprocess로 한글 출력을 읽을 땐 `encoding="utf-8"` 필수**:
+  `insurance_agent/tools/blockchain_tool.py`의 `get_blockchain_dental_status`가
+  `subprocess.run(..., text=True)`(인코딩 미지정)로 `query-policy.js`를 호출했다가,
+  Windows 기본 인코딩(cp949)으로 Node의 UTF-8 출력(한글 이름·₩ 기호)을 디코딩하려다
+  `UnicodeDecodeError`로 매번 조회가 실패한 버그가 있었음 (2026-09-18 수정,
+  `encoding="utf-8", errors="replace"` 명시). 앞으로 Python에서 Node 스크립트를
+  subprocess로 호출해 한글이 섞인 출력을 읽는 코드를 추가할 때 동일 패턴을 조심할 것.
