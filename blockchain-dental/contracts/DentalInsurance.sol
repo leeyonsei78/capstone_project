@@ -1004,13 +1004,31 @@ contract DentalInsurance is Ownable, ReentrancyGuard {
     // ─────────────────────────────────────────
 
     /**
-     * @dev 만기환급금 지급 (관리자 전용)
-     *      만기일 도달 + 미지급 상태인 증권에 대해 환급금 자동 지급
+     * @dev 만기환급금 지급 (관리자 전용, 자동 워처 전용 경로)
+     *      만기일 도달 + 미지급 상태인 증권에 대해서만 지급 가능.
+     *      maturity-watcher.js가 이 함수를 호출하므로 "자동 워처 = 진짜 만기
+     *      도달"이라는 의미를 유지하기 위해 만기 조건을 그대로 둔다.
      */
     function processMaturityRefund(uint256 policyId) external onlyOwner nonReentrant {
+        _payMaturityRefund(policyId, true);
+    }
+
+    /**
+     * @dev 관리자 조기(수동) 만기환급 지급 (2026-09-19 추가)
+     *      보험료가 한 번이라도 납입된 증권이라면, 만기 도래 여부와 무관하게
+     *      관리자 재량으로 즉시 지급 가능 - 프론트엔드 "수동 만기환급 지급"
+     *      전용 경로. 자동 워처(processMaturityRefund)는 영향받지 않음.
+     */
+    function adminPayMaturityRefund(uint256 policyId) external onlyOwner nonReentrant {
+        _payMaturityRefund(policyId, false);
+    }
+
+    function _payMaturityRefund(uint256 policyId, bool requireMatured) internal {
         Policy storage policy = _activePolicy(policyId);
         require(!policy.maturityPaid,         "Maturity refund already paid");
-        require(block.timestamp >= policy.maturityDate, "Policy not yet matured");
+        if (requireMatured) {
+            require(block.timestamp >= policy.maturityDate, "Policy not yet matured");
+        }
         require(policy.totalPaid > 0,         "No premiums paid");
 
         uint256 refundAmount = (policy.totalPaid * policy.maturityRefundRate) / 100;

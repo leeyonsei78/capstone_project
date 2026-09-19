@@ -37,6 +37,7 @@ const INSURANCE_ABI = [
   "function payClaim(uint256 claimId)",
   "function getPolicy(uint256 policyId) view returns (tuple(uint256 id, address patient, string patientName, uint256 monthlyPremium, uint256 coverageLimit, uint256 totalPaid, uint256 totalClaimed, uint256 lastPaymentTime, uint256 nextDueTime, bool active, uint256 createdAt, uint256 maturityDate, uint256 maturityRefundRate, bool maturityPaid, uint256 premiumInterval))",
   "function processMaturityRefund(uint256 policyId)",
+  "function adminPayMaturityRefund(uint256 policyId)",
   "function isMatured(uint256 policyId) view returns (bool)",
   "function setMyMaturityInterval(uint256 policyId, uint256 intervalSeconds)",
   "function getClaim(uint256 claimId) view returns (tuple(uint256 id, uint256 policyId, address patient, uint256 amount, string treatmentCode, string description, uint8 status, uint256 submittedAt, uint256 processedAt, string rejectReason))",
@@ -2835,9 +2836,12 @@ async function processMaturityRefund(policyIdOrComposite) {
     if (policy.maturityPaid) {
       showToast("이미 만기환급이 지급된 증권입니다.", "error"); return;
     }
+    // 관리자 수동 지급은 만기 도래 여부와 무관하게 가능 (2026-09-19 결정) —
+    // 자동 워처(maturity-watcher.js)만 실제 만기 도달을 요구하며, 이 경로는
+    // 컨트랙트의 adminPayMaturityRefund()를 호출해 만기일 조건을 건너뛴다.
     const block = await provider.getBlock("latest");
     if (Number(block.timestamp) < Number(policy.maturityDate)) {
-      showToast(`아직 만기가 도래하지 않았습니다. (만기일: ${tsToDate(policy.maturityDate)})`, "error"); return;
+      addLog("info", "만기 전 조기 지급", `만기일: ${tsToDate(policy.maturityDate)} — 관리자 재량으로 조기 지급 진행`);
     }
     if (BigInt(policy.totalPaid) === 0n) {
       showToast("보험료가 한 번도 납입되지 않아 만기환급을 지급할 수 없습니다.", "error"); return;
@@ -2867,8 +2871,8 @@ async function processMaturityRefund(policyIdOrComposite) {
     showToast("증권 조회 실패 — 증권 ID/통화를 확인하세요.", "error"); return;
   }
   await sendTx(
-    async () => handle.sign.processMaturityRefund(policyId),
-    `[${ccy}] 증권 #${policyId} 만기환급금 지급`,
+    async () => handle.sign.adminPayMaturityRefund(policyId),
+    `[${ccy}] 증권 #${policyId} 만기환급금 지급 (관리자 수동)`,
     async () => { await Promise.all([refreshMaturity(), refreshStats()]); }
   );
 }
