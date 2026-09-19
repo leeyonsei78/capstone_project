@@ -417,7 +417,7 @@ function getReserveForCcy(ccy) {
 
 // "USDC-3" / "KRW-3" 같은 합성 ID 파싱
 function parseCompositeId(value) {
-  if (!value) return null;
+  if (!value || typeof value !== "string") return null;
   const idx = value.indexOf("-");
   if (idx < 0) return null;
   const ccy = value.slice(0, idx);
@@ -2825,7 +2825,24 @@ async function processMaturityRefund(policyIdOrComposite) {
     showToast("관리자만 만기환급 지급 가능합니다.", "error"); return;
   }
   try {
-    const policy      = await handle.ctx.getPolicy(policyId);
+    const policy = await handle.ctx.getPolicy(policyId);
+
+    // 컨트랙트의 require() 조건과 동일한 순서로 미리 검사 — 실패 사유를 온체인
+    // revert 메시지("No premiums paid" 등)에 기대지 않고 화면에 바로 안내한다.
+    // (2026-09-19 발견: 수동 만기환급이 실패해도 토스트에 사유가 안 보여
+    // 사용자가 원인을 알 수 없었음 — sendTx()는 tx가 이미 블록에 채굴되어
+    // status 0으로 실패한 경우 구체적 revert 사유를 보여주지 못한다.)
+    if (policy.maturityPaid) {
+      showToast("이미 만기환급이 지급된 증권입니다.", "error"); return;
+    }
+    const block = await provider.getBlock("latest");
+    if (Number(block.timestamp) < Number(policy.maturityDate)) {
+      showToast(`아직 만기가 도래하지 않았습니다. (만기일: ${tsToDate(policy.maturityDate)})`, "error"); return;
+    }
+    if (BigInt(policy.totalPaid) === 0n) {
+      showToast("보험료가 한 번도 납입되지 않아 만기환급을 지급할 수 없습니다.", "error"); return;
+    }
+
     const refundAmt    = (BigInt(policy.totalPaid) * BigInt(policy.maturityRefundRate)) / 100n;
     const loan         = await handle.ctx.getPolicyLoan(policyId);
     let netRefundAmt   = refundAmt;
@@ -2836,6 +2853,9 @@ async function processMaturityRefund(policyIdOrComposite) {
       netRefundAmt    = loanTotal >= refundAmt ? 0n : refundAmt - loanTotal;
       loanLine        = `\n약관대출 활성 : 원리금 ${fmtByCcy(loanTotal, ccy)} (원금 ${fmtByCcy(loan.loanAmount, ccy)}+이자 ${fmtByCcy(interest, ccy)}) 차감 예정`;
     }
+    if (refundAmt === 0n) {
+      showToast("환급율 또는 납입액이 0이라 환급액이 0원입니다.", "error"); return;
+    }
     const contractBal = await handle.ctx.getContractBalance();
     addLog("info", `만기환급 사전 확인 ([${ccy}] 증권 #${policyId})`,
       `피보험자    : ${policy.patientName}\n납입 합계   : ${fmtByCcy(policy.totalPaid, ccy)}\n환급율      : ${policy.maturityRefundRate}%\n총환급액    : ${fmtByCcy(refundAmt, ccy)}${loanLine}\n실지급 예상액: ${fmtByCcy(netRefundAmt, ccy)}\n보험사잔액  : ${fmtByCcy(contractBal, ccy)}`);
@@ -2844,6 +2864,7 @@ async function processMaturityRefund(policyIdOrComposite) {
     }
   } catch (err) {
     addLog("error", "사전 확인 실패", parseError(err));
+    showToast("증권 조회 실패 — 증권 ID/통화를 확인하세요.", "error"); return;
   }
   await sendTx(
     async () => handle.sign.processMaturityRefund(policyId),
