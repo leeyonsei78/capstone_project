@@ -62,6 +62,18 @@ function fmtDate(unixSeconds) {
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
+// 관리자용 Chrome / 고객용 Edge 등 프론트엔드를 여러 탭에서 동시에 열어두면, 각 탭이
+// 독립적으로 온체인 이벤트를 감지해 이 웹훅을 각각 호출한다 — 같은 이벤트 1건에
+// 이메일이 탭 개수만큼 중복 발송되는 문제(2026-09-19 발견)를 막기 위해, 이벤트를
+// 식별하는 키(type+currency+정책/청구ID) 단위로 서버에서 한 번만 발송하도록 함.
+// 프론트엔드 쪽 이벤트 리스너 중복 문제와는 별개 — 이건 서로 다른 탭(별도 프로세스)이
+// 각자 정상적으로 감지해서 보내는 것이라 클라이언트 쪽에서는 막을 수 없다.
+const sentNotifications = new Set();
+function notifyKey(payload) {
+  const id = payload.type === "policy_issued" ? payload.policyId : payload.claimId;
+  return `${payload.type}:${payload.currency}:${id}`;
+}
+
 // PDF가 아직 없으면(certificate-service.js가 만드는 중일 수 있음) 최대
 // CERT_WAIT_SEC초 동안 1초 간격으로 재확인한다.
 async function waitForCertFile(certFileName) {
@@ -108,7 +120,7 @@ function wrapHtml(title, bodyHtml) {
     </div>
     <div style="padding:24px;color:#111827;font-size:14px;line-height:1.6">${bodyHtml}</div>
     <div style="padding:16px 24px;color:#9ca3af;font-size:11px;border-top:1px solid #f3f4f6">
-      이 메일은 캡스톤 프로젝트 데모용으로 로컬 SMTP 캐처(Mailpit)를 통해 발송되었습니다.
+      이 메일은 블록체인에서 발송되었습니다. 궁금하신 사항은 언제든지 연락 부탁드립니다.
     </div>
   </div>
 </body></html>`;
@@ -229,6 +241,13 @@ const server = http.createServer(async (req, res) => {
   res.writeHead(202, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ ok: true, accepted: true }));
 
+  const key = notifyKey(payload);
+  if (sentNotifications.has(key)) {
+    log(`⏭️  중복 알림 스킵 (이미 발송됨) → key: ${key}`);
+    return;
+  }
+  sentNotifications.add(key); // 비동기 발송 시작 전에 먼저 등록 — 거의 동시에 도착하는 다른 탭의 요청과 경합 방지
+
   try {
     const result = payload.type === "policy_issued"
       ? await handlePolicyIssued(payload)
@@ -237,9 +256,11 @@ const server = http.createServer(async (req, res) => {
     if (result.sent) {
       log(`📧 발송 완료 → ${payload.email} (type: ${payload.type})`);
     } else {
+      sentNotifications.delete(key); // 발송 실패는 "이미 처리됨"이 아니므로 재시도 가능하게 풀어줌
       warn(`발송 실패 → ${payload.email} (type: ${payload.type}): ${result.reason} ${result.detail || ""}`);
     }
   } catch (e) {
+    sentNotifications.delete(key);
     warn(`처리 중 오류 (type: ${payload.type}): ${e.message}`);
   }
 });
